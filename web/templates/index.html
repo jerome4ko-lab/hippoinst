@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="retro" data-mode="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>힙포인사이트 쇼츠 생성기</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────── -->
+<header>
+  <div class="header-logo">힙포인사이트</div>
+  <div class="header-sub">Shorts 자동 생성기</div>
+  <div class="header-space"></div>
+  <div class="theme-controls">
+    <!-- Style toggle -->
+    <div class="theme-group" id="style-group">
+      <button onclick="setTheme('retro')"   id="btn-retro"   class="active">레트로</button>
+      <button onclick="setTheme('classic')" id="btn-classic"         >클래식</button>
+    </div>
+    <!-- Mode toggle -->
+    <div class="theme-group" id="mode-group">
+      <button onclick="setMode('light')" id="btn-light" class="active">☀ 라이트</button>
+      <button onclick="setMode('dark')"  id="btn-dark"               >🌙 다크</button>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────── -->
+<div class="container">
+  <div class="grid">
+
+    <!-- ── 입력 패널 ── -->
+    <div>
+
+      <!-- 기사 -->
+      <div class="card">
+        <div class="card-title">📰 기사 입력</div>
+        <label class="field-label">기사 1</label>
+        <textarea id="article1" placeholder="기사 내용을 붙여넣으세요..."></textarea>
+        <label class="field-label">기사 2</label>
+        <textarea id="article2" placeholder="기사 내용을 붙여넣으세요..."></textarea>
+        <label class="field-label">기사 3</label>
+        <textarea id="article3" placeholder="기사 내용을 붙여넣으세요..."></textarea>
+      </div>
+
+      <!-- 영상 링크 -->
+      <div class="card">
+        <div class="card-title">🎬 참조 영상</div>
+        <label class="field-label">유튜브 링크 1</label>
+        <div class="url-row">
+          <input type="url" id="url1" placeholder="https://youtube.com/watch?v=...">
+          <input type="text" id="start1" value="00:00:00" placeholder="시작 시간">
+        </div>
+        <label class="field-label">유튜브 링크 2 (선택)</label>
+        <div class="url-row">
+          <input type="url" id="url2" placeholder="https://youtube.com/watch?v=...">
+          <input type="text" id="start2" value="00:00:00" placeholder="시작 시간">
+        </div>
+        <label class="field-label">클립 길이 (초)</label>
+        <input type="text" id="duration" value="45" style="max-width:80px">
+      </div>
+
+      <!-- BGM + 음성 -->
+      <div class="card">
+        <div class="card-title">🎵 BGM & 음성</div>
+        <div class="field-label">BGM 선택</div>
+        <div class="bgm-options">
+          <div class="bgm-btn">
+            <input type="radio" name="bgm" id="bgm_impact" value="bgm_impact">
+            <label for="bgm_impact">
+              <button class="bgm-play" onclick="previewBgm('bgm_impact',event)">▶</button>
+              Impact
+            </label>
+          </div>
+          <div class="bgm-btn">
+            <input type="radio" name="bgm" id="bgm_light" value="bgm_light" checked>
+            <label for="bgm_light">
+              <button class="bgm-play" onclick="previewBgm('bgm_light',event)">▶</button>
+              Light
+            </label>
+          </div>
+          <div class="bgm-btn">
+            <input type="radio" name="bgm" id="bgm_future" value="bgm_future">
+            <label for="bgm_future">
+              <button class="bgm-play" onclick="previewBgm('bgm_future',event)">▶</button>
+              Future
+            </label>
+          </div>
+        </div>
+        <audio id="bgm-audio" style="display:none"></audio>
+
+        <div class="divider"></div>
+        <label class="field-label">ElevenLabs Voice ID</label>
+        <input type="text" id="voice-id" value="{{ default_voice_id }}" placeholder="Voice ID">
+      </div>
+
+    </div>
+
+    <!-- ── 스크립트 패널 ── -->
+    <div class="card" style="display:flex;flex-direction:column">
+      <div class="card-title">📝 스크립트</div>
+
+      <div class="script-meta">
+        <div>
+          <label class="field-label">훅 텍스트 (상단 표시)</label>
+          <input type="text" id="s-hook" placeholder="AI 로봇이 탁구 챔피언을 이겼다?">
+        </div>
+        <div>
+          <label class="field-label">BGM 태그</label>
+          <input type="text" id="s-bgm-tag" placeholder="bgm_future" readonly
+                 style="color:var(--muted);cursor:default">
+        </div>
+      </div>
+
+      <label class="field-label">해시태그</label>
+      <input type="text" id="s-hashtags" placeholder="#AI #로봇 #미래기술 #힙포인사이트">
+
+      <div class="divider"></div>
+
+      <label class="field-label">
+        나레이션
+        <span style="font-weight:400;color:var(--muted)">— 한 줄 = 한 문장, 직접 수정 가능</span>
+      </label>
+      <textarea class="narration-editor" id="s-narration"
+        placeholder="스크립트 생성 버튼을 누르면 여기에 나레이션이 표시됩니다.&#10;&#10;각 줄을 직접 수정한 뒤 영상 생성 버튼을 눌러주세요."></textarea>
+      <div class="hint">* 수정 후 '영상 생성'을 누르면 수정된 스크립트가 반영됩니다.</div>
+
+      <div class="btn-row" style="margin-top:auto;padding-top:16px">
+        <button class="btn btn-ghost"      onclick="generateScript()"     id="btn-gen">✨ 스크립트 생성</button>
+        <button class="btn btn-secondary"  onclick="generateScript(true)" id="btn-regen" disabled>🔄 재생성</button>
+        <button class="btn btn-primary"    onclick="renderVideo()"        id="btn-render" disabled>🎬 영상 생성</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 진행 상황 -->
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-label">
+      <span id="progress-msg">준비 중...</span>
+      <span id="progress-pct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- 완성 영상 -->
+  <div class="output-wrap" id="output-wrap">
+    <div class="card-title">🎉 완성 영상</div>
+    <div class="output-grid">
+      <video id="output-video" controls></video>
+      <div class="output-info">
+        <div class="output-name" id="output-filename"></div>
+        <a id="download-btn" class="btn btn-primary" style="text-decoration:none">⬇ MP4 다운로드</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Theme controls ────────────────────────────────────────
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  document.getElementById('btn-retro').classList.toggle('active', theme === 'retro');
+  document.getElementById('btn-classic').classList.toggle('active', theme === 'classic');
+  localStorage.setItem('hi-theme', theme);
+}
+function setMode(mode) {
+  document.documentElement.dataset.mode = mode;
+  document.getElementById('btn-light').classList.toggle('active', mode === 'light');
+  document.getElementById('btn-dark').classList.toggle('active', mode === 'dark');
+  localStorage.setItem('hi-mode', mode);
+}
+// Restore saved preference
+(function() {
+  const t = localStorage.getItem('hi-theme') || 'retro';
+  const m = localStorage.getItem('hi-mode')  || 'light';
+  setTheme(t); setMode(m);
+})();
+
+// ── BGM preview ───────────────────────────────────────────
+function previewBgm(name, e) {
+  e.preventDefault(); e.stopPropagation();
+  const audio = document.getElementById('bgm-audio');
+  if (audio.dataset.name === name && !audio.paused) { audio.pause(); return; }
+  audio.src = `/api/bgm/${name}`;
+  audio.dataset.name = name;
+  audio.play();
+}
+
+// ── Generate script ───────────────────────────────────────
+async function generateScript(regen = false) {
+  const articles = ['article1','article2','article3']
+    .map(id => document.getElementById(id).value.trim())
+    .filter(Boolean);
+  if (!articles.length) { toast('기사를 하나 이상 입력해주세요', 'error'); return; }
+
+  const btn = document.getElementById('btn-gen');
+  btn.disabled = true; btn.textContent = '생성 중...';
+  try {
+    const res  = await fetch('/api/generate-script', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ articles }),
+    });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'error'); return; }
+    fillScript(data.script);
+    document.getElementById('btn-regen').disabled  = false;
+    document.getElementById('btn-render').disabled = false;
+    toast('스크립트 생성 완료!', 'success');
+  } catch(e) { toast('오류: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '✨ 스크립트 생성'; }
+}
+
+function fillScript(s) {
+  document.getElementById('s-hook').value      = s.hook     || '';
+  document.getElementById('s-hashtags').value  = s.hashtags || '';
+  document.getElementById('s-bgm-tag').value   = s.bgm_tag  || '';
+  document.getElementById('s-narration').value = (s.narration || []).join('\n');
+  const r = document.querySelector(`input[name="bgm"][value="${s.bgm_tag}"]`);
+  if (r) r.checked = true;
+}
+
+function collectScript() {
+  return {
+    hook:      document.getElementById('s-hook').value,
+    hashtags:  document.getElementById('s-hashtags').value,
+    bgm_tag:   document.getElementById('s-bgm-tag').value,
+    narration: document.getElementById('s-narration').value
+                 .split('\n').map(l => l.trim()).filter(Boolean),
+  };
+}
+
+// ── Render video ──────────────────────────────────────────
+async function renderVideo() {
+  const url1 = document.getElementById('url1').value.trim();
+  if (!url1) { toast('유튜브 URL을 입력해주세요', 'error'); return; }
+  const script = collectScript();
+  if (!script.narration.length) { toast('나레이션을 입력해주세요', 'error'); return; }
+
+  document.getElementById('btn-render').disabled = true;
+  showProgress(true); hideOutput();
+
+  try {
+    const res = await fetch('/api/render', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        articles: ['article1','article2','article3'].map(id => document.getElementById(id).value),
+        urls:        [url1, document.getElementById('url2').value.trim()],
+        start_times: [document.getElementById('start1').value || '00:00:00',
+                      document.getElementById('start2').value || '00:00:00'],
+        duration:  parseInt(document.getElementById('duration').value) || 45,
+        bgm:       document.querySelector('input[name="bgm"]:checked')?.value || 'bgm_light',
+        voice_id:  document.getElementById('voice-id').value.trim(),
+        script,
+      }),
+    });
+    const { job_id } = await res.json();
+    listenProgress(job_id);
+  } catch(e) {
+    toast('오류: ' + e.message, 'error');
+    document.getElementById('btn-render').disabled = false;
+    showProgress(false);
+  }
+}
+
+// ── SSE progress ──────────────────────────────────────────
+function listenProgress(jobId) {
+  const es = new EventSource(`/api/progress/${jobId}`);
+  es.onmessage = e => {
+    const job = JSON.parse(e.data);
+    updateProgress(job.progress, job.message);
+    if (job.status === 'done') {
+      es.close();
+      showOutput(job.output);
+      document.getElementById('btn-render').disabled = false;
+      toast('영상 생성 완료!', 'success');
+    } else if (job.status === 'error') {
+      es.close();
+      showProgress(false);
+      document.getElementById('btn-render').disabled = false;
+      toast('오류: ' + job.message, 'error');
+    }
+  };
+  es.onerror = () => es.close();
+}
+
+// ── UI helpers ────────────────────────────────────────────
+function showProgress(v) { document.getElementById('progress-wrap').classList.toggle('show', v); }
+function hideOutput()    { document.getElementById('output-wrap').classList.remove('show'); }
+
+function updateProgress(pct, msg) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-msg').textContent  = msg;
+  document.getElementById('progress-pct').textContent  = pct + '%';
+}
+
+function showOutput(filename) {
+  const v = document.getElementById('output-video');
+  const a = document.getElementById('download-btn');
+  v.src = `/api/download/${filename}`;
+  a.href = `/api/download/${filename}`;
+  a.setAttribute('download', filename);
+  document.getElementById('output-filename').textContent = filename;
+  const wrap = document.getElementById('output-wrap');
+  wrap.classList.add('show');
+  wrap.scrollIntoView({ behavior: 'smooth' });
+}
+
+let _toastTimer;
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.className = 'toast'; }, 3500);
+}
+</script>
+</body>
+</html>

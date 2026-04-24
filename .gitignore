@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+temp/
+output/
+*.mp4
+.omc/
+web/.omc/

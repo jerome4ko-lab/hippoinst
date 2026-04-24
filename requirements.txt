@@ -1,0 +1,5 @@
+anthropic>=0.39.0
+elevenlabs>=2.0.0
+Pillow>=10.0.0
+python-dotenv>=1.0.0
+yt-dlp>=2024.1.0
