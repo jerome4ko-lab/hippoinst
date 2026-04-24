@@ -71,7 +71,7 @@ def compose_video(
         # TTS (full volume) + BGM (background)
         audio_filter = (
             f"[2:a]volume=5.0[voice];"
-            f"[3:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.035[bgm];"
+            f"[3:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.05[bgm];"
             f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=3:normalize=0[aout]"
         )
         inputs = [
