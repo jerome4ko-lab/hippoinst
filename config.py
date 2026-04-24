@@ -35,14 +35,11 @@ CLIP_Y   = 480;  CLIP_H   = 960   # 50%
 SUB_Y    = 1440; SUB_H    = 288   # 15%
 HASH_Y   = 1728; HASH_H   = 192   # 10%
 
-# Fonts (Windows / Linux auto-detect)
-import platform as _platform
-_LINUX = _platform.system() == "Linux"
+# Fonts (bundled in assets — works on Windows & Linux)
+FONT_BOLD    = str(ASSETS_DIR / "font_bold.ttf")
+FONT_REGULAR = str(ASSETS_DIR / "font_regular.ttf")
 
-FONT_BOLD    = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"    if _LINUX else "C:/Windows/Fonts/malgunbd.ttf"
-FONT_REGULAR = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc" if _LINUX else "C:/Windows/Fonts/malgun.ttf"
-
-SUBTITLE_FONT      = "Noto Sans CJK KR" if _LINUX else "NanumSquareRoundEB"
+SUBTITLE_FONT      = "GmarketSansTTFBold"   # ASS face name (matches TTF internal name)
 SUBTITLE_FONT_SIZE = 58
 SUBTITLE_PHRASES   = 4
 

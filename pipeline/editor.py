@@ -64,7 +64,7 @@ def compose_video(
         f"[1:v]scale=1080:{config.CLIP_H}:force_original_aspect_ratio=decrease,"
         f"pad=1080:{config.CLIP_H}:(ow-iw)/2:(oh-ih)/2:black[clip];"
         f"[0:v][clip]overlay=0:{config.CLIP_Y}[vbase];"
-        f"[vbase]subtitles='{ass_esc}'[vout]"
+        f"[vbase]subtitles='{ass_esc}':fontsdir='{_ffmpeg_path(config.ASSETS_DIR)}'[vout]"
     )
 
     if tts_path:
