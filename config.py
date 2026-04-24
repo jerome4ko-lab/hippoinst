@@ -46,6 +46,8 @@ SUBTITLE_FONT      = "Noto Sans CJK KR" if _LINUX else "NanumSquareRoundEB"
 SUBTITLE_FONT_SIZE = 58
 SUBTITLE_PHRASES   = 4
 
+TTS_SPEED = 1.2   # 1.0 = 기본, 1.2 = 20% 빠르게
+
 COLORS = {
     "bg":        (14, 14, 14),
     "banner_bg": (26, 26, 46),

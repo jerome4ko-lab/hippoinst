@@ -15,11 +15,17 @@ def generate_tts(narration: list[str], voice_id: str = None) -> tuple[Path, floa
     vid      = voice_id or config.ELEVENLABS_VOICE_ID
     client   = ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
 
+    from elevenlabs.types import VoiceSettings
     response = client.text_to_speech.convert_with_timestamps(
         voice_id=vid,
         text=text,
         model_id="eleven_multilingual_v2",
         output_format="mp3_44100_128",
+        voice_settings=VoiceSettings(
+            stability=0.5,
+            similarity_boost=0.75,
+            speed=config.TTS_SPEED,
+        ),
     )
 
     tts_path = config.TEMP_DIR / "tts.mp3"
