@@ -7,9 +7,15 @@ def download_clip(url: str, start: str = "00:00:00", duration: int = 45) -> Path
     raw_path     = config.TEMP_DIR / "raw_clip.mp4"
     trimmed_path = config.TEMP_DIR / "clip.mp4"
 
+    # 이전 실행물 제거 — 같은 경로면 yt-dlp가 다운로드를 건너뛴다
+    raw_path.unlink(missing_ok=True)
+    trimmed_path.unlink(missing_ok=True)
+
     # Download best video-only mp4 (audio stripped later anyway)
     _run([
         "yt-dlp",
+        "--no-continue",
+        "--force-overwrites",
         "-f", "bestvideo[ext=mp4]/bestvideo",
         "-o", str(raw_path),
         url,
