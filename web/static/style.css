@@ -219,6 +219,32 @@ textarea:focus, input:focus { border-color: var(--accent); }
   font-size: 12px; padding: 0; line-height: 1;
 }
 
+/* ── TTS provider pills ──────────────────────────────── */
+.provider-options { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+.provider-btn { cursor: pointer; user-select: none; }
+.provider-btn input[type="radio"] { display: none; }
+.provider-btn span {
+  display: inline-block;
+  background: var(--input-bg);
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  transition: all var(--transition);
+}
+.provider-btn:hover span { border-color: var(--accent); }
+.provider-btn input:checked + span {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+[data-theme="classic"] .provider-btn input:checked + span { color: #000; }
+
+.voice-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
+.voice-row input { width: 100%; }
+
 /* ── Buttons ─────────────────────────────────────────── */
 .btn {
   display: inline-flex; align-items: center; justify-content: center;

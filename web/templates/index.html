@@ -92,8 +92,30 @@
         <audio id="bgm-audio" style="display:none"></audio>
 
         <div class="divider"></div>
-        <label class="field-label">ElevenLabs Voice ID</label>
-        <input type="text" id="voice-id" value="{{ default_voice_id }}" placeholder="Voice ID">
+
+        <div class="field-label">TTS 엔진</div>
+        <div class="provider-options">
+          <label class="provider-btn">
+            <input type="radio" name="provider" value="elevenlabs" checked
+                   onchange="onProviderChange()">
+            <span>ElevenLabs</span>
+          </label>
+          <label class="provider-btn">
+            <input type="radio" name="provider" value="typecast"
+                   onchange="onProviderChange()">
+            <span>Typecast</span>
+          </label>
+        </div>
+
+        <label class="field-label">Voice ID
+          <span id="voice-hint" style="font-weight:400;color:var(--muted);font-size:12px"></span>
+        </label>
+        <div class="voice-row">
+          <input type="text" id="voice-id" value="{{ default_voice_id }}" placeholder="Voice ID">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-preview"
+                  onclick="previewVoice()">🔊 미리듣기</button>
+        </div>
+        <audio id="voice-audio" style="display:none"></audio>
       </div>
 
     </div>
@@ -200,6 +222,71 @@ function setMode(mode) {
   const m = localStorage.getItem('hi-mode')  || 'light';
   setTheme(t); setMode(m);
 })();
+
+// ── TTS provider / voice ──────────────────────────────────
+const VOICE_DEFAULTS = {
+  elevenlabs: '{{ default_voice_id }}',
+  typecast:   '{{ default_typecast_voice_id }}',
+};
+const VOICE_HINTS = {
+  elevenlabs: '예: zgDzx5jLLCqEp6Fl7Kl7',
+  typecast:   '예: tc_ 로 시작 (Typecast 콘솔에서 복사)',
+};
+const _userVoice = { elevenlabs: null, typecast: null };
+
+function currentProvider() {
+  return document.querySelector('input[name="provider"]:checked')?.value || 'elevenlabs';
+}
+
+function onProviderChange() {
+  const p   = currentProvider();
+  const inp = document.getElementById('voice-id');
+  // 사용자가 직전에 입력해 둔 값이 있으면 살려두고, 아니면 기본값
+  _userVoice[p === 'elevenlabs' ? 'typecast' : 'elevenlabs'] = inp.value.trim();
+  inp.value = _userVoice[p] || VOICE_DEFAULTS[p] || '';
+  document.getElementById('voice-hint').textContent = VOICE_HINTS[p] || '';
+}
+
+async function previewVoice() {
+  const provider = currentProvider();
+  const voice_id = document.getElementById('voice-id').value.trim();
+  if (!voice_id) { toast('Voice ID를 입력해주세요', 'error'); return; }
+
+  // narration 1줄 있으면 그걸 샘플로 (없으면 기본 인삿말)
+  const narr = document.getElementById('s-narration').value
+                  .split('\n').map(s => s.trim()).filter(Boolean)[0];
+  const text = narr || '안녕하세요, 힙포인사이트입니다. 오늘도 흥미로운 AI 소식을 들고 왔어요.';
+
+  const btn   = document.getElementById('btn-preview');
+  const audio = document.getElementById('voice-audio');
+  btn.disabled = true; btn.textContent = '⏳ 생성 중...';
+  try {
+    const res = await fetch('/api/tts-preview', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ provider, voice_id, text }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({error: res.statusText}));
+      toast('미리듣기 실패: ' + (j.error || res.statusText), 'error');
+      return;
+    }
+    const ctype = res.headers.get('content-type') || '';
+    if (ctype.includes('application/json')) {
+      const j = await res.json();
+      toast('미리듣기 실패: ' + (j.error || ''), 'error');
+      return;
+    }
+    const blob = await res.blob();
+    audio.src = URL.createObjectURL(blob);
+    audio.play();
+  } catch(e) { toast('오류: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '🔊 미리듣기'; }
+}
+
+// 초기 hint 세팅
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('voice-hint').textContent = VOICE_HINTS.elevenlabs;
+});
 
 // ── BGM preview ───────────────────────────────────────────
 function previewBgm(name, e) {
@@ -338,6 +425,7 @@ async function renderVideo() {
                       document.getElementById('start2').value || '00:00:00'],
         duration:  parseInt(document.getElementById('duration').value) || 55,
         bgm:       document.querySelector('input[name="bgm"]:checked')?.value || 'bgm_light',
+        provider:  currentProvider(),
         voice_id:  document.getElementById('voice-id').value.trim(),
         script,
       }),

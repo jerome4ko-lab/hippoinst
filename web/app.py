@@ -36,12 +36,19 @@ class FactCheckRequest(BaseModel):
     script:   str = ""
 
 
+class TTSPreviewRequest(BaseModel):
+    provider: str = "elevenlabs"     # elevenlabs | typecast
+    voice_id: Optional[str] = None
+    text:     str = "안녕하세요, 힙포인사이트입니다. 오늘도 흥미로운 AI 소식을 들고 왔어요."
+
+
 class RenderRequest(BaseModel):
     articles: list[str] = []
     urls: list[str] = []
     start_times: list[str] = ["00:00:00", "00:00:00"]
     duration: int = 55
     bgm: str = "bgm_light"
+    provider: str = "elevenlabs"     # elevenlabs | typecast
     voice_id: str = config.ELEVENLABS_VOICE_ID
     script: Optional[dict] = None   # pre-generated or manually edited
 
@@ -54,8 +61,9 @@ async def index(request: Request):
         request=request,
         name="index.html",
         context={
-            "default_voice_id": config.ELEVENLABS_VOICE_ID,
-            "bgm_options": list(config.BGM_MAP.keys()),
+            "default_voice_id":          config.ELEVENLABS_VOICE_ID,
+            "default_typecast_voice_id": config.TYPECAST_VOICE_ID,
+            "bgm_options":               list(config.BGM_MAP.keys()),
         },
     )
 
@@ -87,6 +95,20 @@ async def fact_check_api(req: FactCheckRequest):
     try:
         result = fact_check(articles, req.script)
         return {"result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/tts-preview")
+async def tts_preview_api(req: TTSPreviewRequest):
+    """짧은 샘플 텍스트로 미리듣기용 MP3 생성."""
+    from pipeline.tts import synthesize_preview
+    try:
+        text = (req.text or "").strip()[:200] or \
+               "안녕하세요, 힙포인사이트입니다."
+        out = synthesize_preview(text, provider=req.provider, voice_id=req.voice_id)
+        return FileResponse(str(out), media_type="audio/mpeg",
+                            headers={"Cache-Control": "no-cache"})
     except Exception as e:
         return {"error": str(e)}
 
@@ -167,8 +189,12 @@ def _run_pipeline(job_id: str, req: RenderRequest):
                 raise ValueError("기사를 입력해주세요")
             script = generate_script_from_articles(articles)
 
-        upd(45, "음성(TTS) 생성 중...")
-        tts_path, tts_duration, words = generate_tts(script["narration"], voice_id=req.voice_id)
+        upd(45, f"음성(TTS) 생성 중... [{req.provider}]")
+        tts_path, tts_duration, words = generate_tts(
+            script["narration"],
+            provider=req.provider,
+            voice_id=req.voice_id,
+        )
         video_duration = min(round(tts_duration) + 2, req.duration)
 
         upd(62, "배경 이미지 생성 중...")
