@@ -55,7 +55,7 @@ def compose_video(
     output_path: Path,
     bgm_path:    Path,
     tts_path:    Path = None,
-    duration:    int  = 45,
+    duration:    int  = 55,
 ) -> None:
     """Composite background + clip + subtitles + audio into final MP4."""
     ass_esc = _ffmpeg_path(ass_path)

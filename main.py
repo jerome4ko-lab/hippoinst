@@ -7,7 +7,7 @@ from pathlib import Path
 import config
 from pipeline.downloader       import download_clip
 from pipeline.script_generator import generate_script, generate_script_from_articles, load_articles
-from pipeline.subtitle         import generate_word_highlight_ass
+from pipeline.subtitle         import generate_chunk_ass, chunk_narration
 from pipeline.editor           import create_background_frame, compose_video
 from pipeline.tts              import generate_tts  # returns (path, duration, words)
 
@@ -19,7 +19,7 @@ def main():
     parser.add_argument("--url",      required=True,        help="유튜브 URL")
     parser.add_argument("--title",    default=None,         help="영상 제목/주제 (articles.txt 없을 때 필수)")
     parser.add_argument("--start",    default="00:00:00",   help="클립 시작 시간 (HH:MM:SS)")
-    parser.add_argument("--duration", type=int, default=45, help="클립 길이 (초)")
+    parser.add_argument("--duration", type=int, default=55, help="클립 길이 (초)")
     args = parser.parse_args()
 
     config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -49,15 +49,19 @@ def main():
     print("[3/6] 음성(TTS) 생성 중...")
     tts_path, tts_duration, words = generate_tts(script["narration"])
     print(f"      → {tts_path} ({tts_duration:.1f}초, 단어 {len(words)}개)")
-    video_duration = min(round(tts_duration) + 2, 60)
+    video_duration = min(round(tts_duration) + 2, args.duration)
 
     print("[4/6] 배경 이미지 생성 중...")
     bg_path = create_background_frame(script["hook"], script["hashtags"])
     print(f"      → {bg_path}")
 
     print("[5/6] 자막(ASS) 생성 중...")
-    ass_path = generate_word_highlight_ass(words, tts_duration)
-    print(f"      → {ass_path}")
+    raw_subs = script.get("subtitles") or []
+    chunks   = [s["text"] if isinstance(s, dict) else str(s) for s in raw_subs]
+    if not chunks:
+        chunks = chunk_narration(script["narration"])
+    ass_path = generate_chunk_ass(chunks, words, tts_duration)
+    print(f"      → {ass_path} (청크 {len(chunks)}개)")
 
     print("[6/6] 영상 합성 중...")
     bgm_path = config.BGM_MAP.get(script["bgm_tag"], config.BGM_FALLBACK)

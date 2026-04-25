@@ -35,7 +35,7 @@ class RenderRequest(BaseModel):
     articles: list[str] = []
     urls: list[str] = []
     start_times: list[str] = ["00:00:00", "00:00:00"]
-    duration: int = 45
+    duration: int = 55
     bgm: str = "bgm_light"
     voice_id: str = config.ELEVENLABS_VOICE_ID
     script: Optional[dict] = None   # pre-generated or manually edited
@@ -124,7 +124,7 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         from pipeline.downloader import download_clip
         from pipeline.script_generator import generate_script_from_articles
         from pipeline.tts import generate_tts
-        from pipeline.subtitle import generate_word_highlight_ass
+        from pipeline.subtitle import generate_chunk_ass, chunk_narration
         from pipeline.editor import create_background_frame, compose_video
 
         config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -148,13 +148,17 @@ def _run_pipeline(job_id: str, req: RenderRequest):
 
         upd(45, "음성(TTS) 생성 중...")
         tts_path, tts_duration, words = generate_tts(script["narration"], voice_id=req.voice_id)
-        video_duration = min(round(tts_duration) + 2, 60)
+        video_duration = min(round(tts_duration) + 2, req.duration)
 
         upd(62, "배경 이미지 생성 중...")
         bg_path = create_background_frame(script["hook"], script["hashtags"])
 
         upd(72, "자막 생성 중...")
-        ass_path = generate_word_highlight_ass(words, tts_duration)
+        raw_subs = script.get("subtitles") or []
+        chunks   = [s["text"] if isinstance(s, dict) else str(s) for s in raw_subs]
+        if not chunks:
+            chunks = chunk_narration(script["narration"])
+        ass_path = generate_chunk_ass(chunks, words, tts_duration)
 
         upd(82, "영상 합성 중...")
         bgm_path = config.BGM_MAP.get(req.bgm, config.BGM_FALLBACK)

@@ -3,7 +3,7 @@ from pathlib import Path
 import config
 
 
-def download_clip(url: str, start: str = "00:00:00", duration: int = 45) -> Path:
+def download_clip(url: str, start: str = "00:00:00", duration: int = 55) -> Path:
     raw_path     = config.TEMP_DIR / "raw_clip.mp4"
     trimmed_path = config.TEMP_DIR / "clip.mp4"
 

@@ -59,7 +59,7 @@
           <input type="text" id="start2" value="00:00:00" placeholder="시작 시간">
         </div>
         <label class="field-label">클립 길이 (초)</label>
-        <input type="text" id="duration" value="45" style="max-width:80px">
+        <input type="text" id="duration" value="55" style="max-width:80px">
       </div>
 
       <!-- BGM + 음성 -->
@@ -255,7 +255,7 @@ async function renderVideo() {
         urls:        [url1, document.getElementById('url2').value.trim()],
         start_times: [document.getElementById('start1').value || '00:00:00',
                       document.getElementById('start2').value || '00:00:00'],
-        duration:  parseInt(document.getElementById('duration').value) || 45,
+        duration:  parseInt(document.getElementById('duration').value) || 55,
         bgm:       document.querySelector('input[name="bgm"]:checked')?.value || 'bgm_light',
         voice_id:  document.getElementById('voice-id').value.trim(),
         script,

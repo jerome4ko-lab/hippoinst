@@ -26,7 +26,7 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "zgDzx5jLLCqEp6Fl7Kl7")
 
 VIDEO_WIDTH    = 1080
 VIDEO_HEIGHT   = 1920
-VIDEO_DURATION = 45
+VIDEO_DURATION = 55
 
 # Layout zones (y offset, height) in pixels
 BANNER_Y = 0;    BANNER_H = 288   # 15%

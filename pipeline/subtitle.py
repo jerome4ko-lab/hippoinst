@@ -1,9 +1,99 @@
+import re
 from pathlib import Path
 import config
 
 # ASS color constants (BGR format: &H00BBGGRR&)
 _WHITE  = "&H00FFFFFF&"
 _YELLOW = "&H0040C0F0&"   # #f0c040 in RGB → BGR = 40C0F0
+
+
+def generate_chunk_ass(chunks: list[str], words: list[dict], duration: float = 55) -> Path:
+    """Render semantic-chunk subtitles aligned to TTS word timings.
+    Each chunk is shown as one screen for its mapped duration (no per-word highlight).
+    """
+    margin_v = config.VIDEO_HEIGHT - (config.CLIP_Y + config.CLIP_H - 70)
+    header   = _ass_header(config.SUBTITLE_FONT, config.SUBTITLE_FONT_SIZE, margin_v)
+    lines    = [header]
+
+    aligned = align_chunks_to_words(chunks, words)
+    if not aligned:
+        return generate_word_highlight_ass(words, duration)
+
+    for i, chunk in enumerate(aligned):
+        start = _to_ass_time(chunk["start"])
+        end_t = aligned[i + 1]["start"] if i < len(aligned) - 1 else chunk["end"]
+        end   = _to_ass_time(end_t)
+        text  = f"{{\\c{_YELLOW}\\b1}}{chunk['text']}{{\\b0\\c{_WHITE}}}"
+        lines.append(f"Dialogue: 0,{start},{end},WordHL,,0,0,0,,{text}")
+
+    ass_path = config.TEMP_DIR / "subtitles.ass"
+    ass_path.write_text("\n".join(lines), encoding="utf-8-sig")
+    return ass_path
+
+
+def align_chunks_to_words(chunks: list[str], words: list[dict]) -> list[dict]:
+    """Map chunk texts onto TTS word-level timings via character matching."""
+    if not words or not chunks:
+        return []
+
+    char_timings: list[tuple[str, float, float]] = []
+    for w in words:
+        if not w.get("word"):
+            continue
+        for c in w["word"]:
+            char_timings.append((c, w["start"], w["end"]))
+    full_text = "".join(c for c, _, _ in char_timings)
+
+    aligned, cursor = [], 0
+    for chunk_text in chunks:
+        target = _norm(chunk_text)
+        if not target:
+            continue
+        idx = full_text.find(target, cursor)
+        if idx < 0:
+            idx = full_text.find(target)
+            if idx < 0:
+                continue
+        end_idx = min(idx + len(target) - 1, len(char_timings) - 1)
+        aligned.append({
+            "text":  chunk_text,
+            "start": char_timings[idx][1],
+            "end":   char_timings[end_idx][2],
+        })
+        cursor = end_idx + 1
+    return aligned
+
+
+def chunk_narration(narration: list[str], min_chars: int = 3, max_chars: int = 8) -> list[str]:
+    """Rule-based fallback: split narration into 3~8 char chunks at word boundaries."""
+    chunks: list[str] = []
+    for raw_line in narration:
+        line = raw_line.strip()
+        if not line:
+            continue
+        words = line.split()
+        buf = ""
+        for w in words:
+            candidate = f"{buf} {w}".strip() if buf else w
+            if _visible_len(candidate) > max_chars and buf:
+                chunks.append(buf)
+                buf = w
+            else:
+                buf = candidate
+        if buf:
+            if _visible_len(buf) < min_chars and chunks:
+                chunks[-1] = f"{chunks[-1]} {buf}"
+            else:
+                chunks.append(buf)
+    return chunks
+
+
+def _visible_len(s: str) -> int:
+    return len(re.sub(r'\s+', '', s))
+
+
+def _norm(s: str) -> str:
+    return re.sub(r'[\s.,!?…·\-—~`\'"()\[\]]+', '', s)
 
 
 def generate_word_highlight_ass(words: list[dict], duration: float) -> Path:
@@ -47,7 +137,7 @@ def generate_word_highlight_ass(words: list[dict], duration: float) -> Path:
     return ass_path
 
 
-def narration_to_subtitles(narration: list[str], duration: float = 45) -> list[dict]:
+def narration_to_subtitles(narration: list[str], duration: float = 55) -> list[dict]:
     """Distribute narration lines evenly, weighted by char count."""
     if not narration:
         return []
@@ -61,7 +151,7 @@ def narration_to_subtitles(narration: list[str], duration: float = 45) -> list[d
     return subtitles
 
 
-def generate_ass(subtitles: list, duration: float = 45) -> Path:
+def generate_ass(subtitles: list, duration: float = 55) -> Path:
     """Fallback: simple subtitle file in the subtitle zone."""
     zone_center_y = config.SUB_Y + config.SUB_H // 2
     margin_v      = config.VIDEO_HEIGHT - zone_center_y
