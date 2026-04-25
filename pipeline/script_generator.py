@@ -49,12 +49,13 @@ JSON 형식으로만 응답하세요 (마크다운 코드 블록 제외):
 - start/end 같은 시간값은 넣지 마세요 (음성 alignment에서 자동 산출)
 - subtitles의 text를 모두 이어붙이면 narration 전체 텍스트와 일치해야 합니다
 
-GIF 오버레이(gifs) 규칙 — 영상 재미용 리액션 GIF (선택, 0~3개):
-- keyword_en: 반드시 영어 키워드 (Klipy 검색 hit율↑). 짧고 시각적으로 강한 단어 — "robot dancing", "wow", "facepalm", "mind blown", "mic drop", "explosion", "thumbs up" 등.
+GIF 오버레이(gifs) 규칙 — 영상 재미용 리액션 GIF (필수, 최소 1개):
+- keyword_en: 반드시 영어 키워드 (Klipy 검색 hit율↑). 짧고 시각적으로 강한 단어 — "robot dancing", "wow", "facepalm", "mind blown", "mic drop", "explosion", "thumbs up", "shocked", "amazing", "no way" 등.
 - start: narration 흐름상 그 표현이 어울리는 순간의 초 단위 시각 (대략 추정 OK — TTS 길이는 narration 글자수 기반 ~3.5자/초로 가늠).
 - duration: 1.5~3.0초. 너무 길면 지루.
-- 0~3개. 일반적으로 1~2개가 가장 효과적. 진지한 주제는 0개도 OK.
-- start 값들이 너무 가깝지 않게 (최소 5초 간격)."""
+- **반드시 1~3개 포함**. 영상 임팩트의 핵심이라 0개로 두지 말 것. 모든 주제(진지·뉴스·기술 포함)에 어울리는 GIF가 존재함.
+- start 값들이 너무 가깝지 않게 (최소 5초 간격).
+- 첫 GIF는 영상의 hook/반전 지점, 두 번째는 마무리 직전 강조 지점에 배치."""
 
 
 def load_articles(path: Path) -> list[str]:

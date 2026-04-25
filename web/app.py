@@ -162,7 +162,7 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         ass_path = generate_chunk_ass(chunks, words, tts_duration)
 
         upd(78, "GIF 페치 중...")
-        gif_records = _fetch_gifs(script.get("gifs") or [])
+        gif_records = _fetch_gifs(script.get("gifs") or [], video_duration=video_duration)
 
         upd(85, "영상 합성 중...")
         bgm_path = config.BGM_MAP.get(req.bgm, config.BGM_FALLBACK)
@@ -184,13 +184,16 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         jobs[job_id].update({"status": "error", "progress": 0, "message": str(e)})
 
 
-def _fetch_gifs(specs: list) -> list[dict]:
-    """script['gifs'] 항목들을 Klipy로 페치. 실패한 항목은 조용히 스킵."""
-    if not specs:
-        return []
+_FALLBACK_GIF_KEYWORDS = ["mind blown", "wow", "shocked", "amazing", "no way"]
+
+
+def _fetch_gifs(specs: list, video_duration: float = 55.0) -> list[dict]:
+    """script['gifs'] 항목들을 Klipy로 페치. Claude가 빠뜨리거나 모두 실패하면
+    안전망으로 기본 키워드 GIF 1개를 영상 1/3 지점에 삽입."""
     from pipeline.gif_fetch import fetch as fetch_gif
-    out = []
-    for g in specs:
+
+    out: list[dict] = []
+    for g in (specs or []):
         kw = g.get("keyword_en") or g.get("keyword")
         if not kw:
             continue
@@ -204,6 +207,22 @@ def _fetch_gifs(specs: list) -> list[dict]:
             })
         except Exception as exc:
             print(f"[gif] {kw!r} fetch 실패: {exc}", flush=True)
+
+    # Fallback — 결과가 비어 있으면 영상 임팩트 보장 위해 기본 GIF 1개
+    if not out:
+        for kw in _FALLBACK_GIF_KEYWORDS:
+            try:
+                path = fetch_gif(kw)
+                out.append({
+                    "path":     path,
+                    "start":    max(2.0, video_duration / 3),
+                    "duration": 2.0,
+                    "size":     600,
+                })
+                print(f"[gif] fallback {kw!r} 사용", flush=True)
+                break
+            except Exception as exc:
+                print(f"[gif] fallback {kw!r} 실패: {exc}", flush=True)
     return out
 
 
