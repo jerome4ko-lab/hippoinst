@@ -39,7 +39,7 @@ HASH_Y   = 1728; HASH_H   = 192   # 10%
 FONT_BOLD    = str(ASSETS_DIR / "font_bold.ttf")
 FONT_REGULAR = str(ASSETS_DIR / "font_regular.ttf")
 
-SUBTITLE_FONT      = "GmarketSansTTFBold"   # ASS face name (matches TTF internal name)
+SUBTITLE_FONT      = "Gmarket Sans TTF"  # ASS face name
 SUBTITLE_FONT_SIZE = 58
 SUBTITLE_PHRASES   = 4
 

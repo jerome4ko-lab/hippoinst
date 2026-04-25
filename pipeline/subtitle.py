@@ -91,7 +91,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordHL,{font},{size},&H00FFFFFF,&H000000FF,&H00000000,&HC8000000,-1,0,0,0,100,100,0,0,1,3,1,2,30,30,{margin_v},1
+Style: WordHL,{font},{size},&H00FFFFFF,&H000000FF,&H00000000,&HC8000000,0,0,0,0,100,100,0,0,1,3,1,2,30,30,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"""
