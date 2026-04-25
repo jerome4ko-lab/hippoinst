@@ -233,8 +233,11 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         keyword = re.sub(r'[\\/:*?"<>|]', "", script["hook"][:20]).replace(" ", "_")
         output_path = config.OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{keyword}.mp4"
 
+        provider_key = (req.provider or "elevenlabs").lower()
+        voice_gain   = config.TTS_VOICE_GAIN.get(provider_key, config.TTS_VOICE_GAIN["elevenlabs"])
         compose_video(clip_path, bg_path, ass_path, output_path, bgm_path,
-                      tts_path=tts_path, duration=video_duration, gifs=gif_records)
+                      tts_path=tts_path, duration=video_duration, gifs=gif_records,
+                      voice_gain=voice_gain)
 
         jobs[job_id].update({
             "status": "done", "progress": 100,

@@ -54,6 +54,14 @@ SUBTITLE_PHRASES   = 4
 
 TTS_SPEED = 1.2   # 1.0 = 기본, 1.2 = 20% 빠르게
 
+# 음성/BGM 믹스 — 측정 기준: ElevenLabs ~-22 LUFS, Typecast ~-16 LUFS
+TTS_VOICE_GAIN = {
+    "elevenlabs": 4.0,   # 원본이 약간 작으므로 4배 부스트
+    "typecast":   2.0,   # 원본이 6dB 더 커서 절반만
+}
+BGM_VOLUME           = 0.20   # 기존 0.08 → +8dB
+BGM_VOLUME_NO_VOICE  = 0.30   # TTS 없을 때(이론상 사용 X)
+
 COLORS = {
     "bg":        (14, 14, 14),
     "banner_bg": (26, 26, 46),

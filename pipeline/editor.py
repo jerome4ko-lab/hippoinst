@@ -95,6 +95,8 @@ def compose_video(
     tts_path:    Path = None,
     duration:    int  = 55,
     gifs:        list = None,   # [{"path": Path, "start": float, "duration": float, "size": int}]
+    voice_gain:  float = None,  # None → ElevenLabs 디폴트 사용
+    bgm_volume:  float = None,
 ) -> None:
     """Composite background + clip + GIFs + subtitles + audio into final MP4.
 
@@ -166,15 +168,20 @@ def compose_video(
     video_filter = ";".join(parts)
 
     # ── 오디오 필터 ─────────────────────────────────────────────────
+    vg  = float(voice_gain if voice_gain is not None else config.TTS_VOICE_GAIN["elevenlabs"])
+    bv  = float(bgm_volume if bgm_volume is not None else config.BGM_VOLUME)
+    bv_alone = float(bgm_volume if bgm_volume is not None else config.BGM_VOLUME_NO_VOICE)
+    fade_st  = max(duration - 5, 0)
+
     if tts_path:
         audio_filter = (
-            f"[{tts_idx}:a]volume=5.0[voice];"
-            f"[{bgm_idx}:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.08[bgm];"
+            f"[{tts_idx}:a]volume={vg:.3f}[voice];"
+            f"[{bgm_idx}:a]afade=t=out:st={fade_st}:d=5,volume={bv:.3f}[bgm];"
             f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=3:normalize=0[aout]"
         )
     else:
         audio_filter = (
-            f"[{bgm_idx}:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.15[aout]"
+            f"[{bgm_idx}:a]afade=t=out:st={fade_st}:d=5,volume={bv_alone:.3f}[aout]"
         )
 
     filter_complex = f"{video_filter};{audio_filter}"
