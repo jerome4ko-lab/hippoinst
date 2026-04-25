@@ -131,11 +131,12 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         url = next((u.strip() for u in req.urls if u.strip()), None)
-        if not url:
-            raise ValueError("유튜브 URL을 입력해주세요")
-
-        upd(10, "영상 다운로드 중...")
-        clip_path = download_clip(url, req.start_times[0] or "00:00:00", req.duration)
+        if url:
+            upd(10, "영상 다운로드 중...")
+            clip_path = download_clip(url, req.start_times[0] or "00:00:00", req.duration)
+        else:
+            upd(10, "참조 영상 없음 — 스크립트 베이스 모드")
+            clip_path = None
 
         upd(25, "스크립트 생성 중...")
         if req.script:
@@ -151,7 +152,7 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         video_duration = min(round(tts_duration) + 2, req.duration)
 
         upd(62, "배경 이미지 생성 중...")
-        bg_path = create_background_frame(script["hook"], script["hashtags"])
+        bg_path = create_background_frame(script["hook"], script["hashtags"], clipless=(clip_path is None))
 
         upd(72, "자막 생성 중...")
         raw_subs = script.get("subtitles") or []

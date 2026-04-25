@@ -6,8 +6,13 @@ from PIL import Image, ImageDraw, ImageFont
 import config
 
 
-def create_background_frame(hook_text: str, hashtag_text: str) -> Path:
-    """Render static background (banner + hook title + hashtag) as PNG."""
+def create_background_frame(hook_text: str, hashtag_text: str, *, clipless: bool = False) -> Path:
+    """Render static background (banner + hook title + hashtag) as PNG.
+
+    clip 영역(CLIP_Y~CLIP_Y+CLIP_H)에는 항상 미묘한 vertical gradient를 깔아둔다.
+    클립이 있으면 영상이 위에 덮이므로 무해. clipless=True 일 땐 추가로 클립 영역 중앙에
+    큰 hook 텍스트를 그려 비주얼 앵커로 사용.
+    """
     img  = Image.new("RGB", (config.VIDEO_WIDTH, config.VIDEO_HEIGHT), config.COLORS["bg"])
 
     # Banner zone: scale banner to full width, center-crop to BANNER_H
@@ -20,6 +25,15 @@ def create_background_frame(hook_text: str, hashtag_text: str) -> Path:
         top    = (new_bh - config.BANNER_H) // 2
         banner = banner.crop((0, top, config.VIDEO_WIDTH, top + config.BANNER_H))
     img.paste(banner, (0, config.BANNER_Y))
+
+    # Clip zone: vertical gradient (banner_bg → bg). 클립 있을 땐 영상이 덮음.
+    _paint_vertical_gradient(
+        img,
+        x=0, y=config.CLIP_Y,
+        w=config.VIDEO_WIDTH, h=config.CLIP_H,
+        top_rgb=config.COLORS["banner_bg"],
+        bot_rgb=config.COLORS["bg"],
+    )
 
     draw = ImageDraw.Draw(img)
 
@@ -43,13 +57,37 @@ def create_background_frame(hook_text: str, hashtag_text: str) -> Path:
                    config.HASH_Y + config.HASH_H // 2,
                    config.COLORS["hashtag"])
 
+    # Clipless 모드: 클립 영역 위쪽 1/3 지점에 큰 hook 한 번 더 (비주얼 앵커)
+    if clipless:
+        try:
+            font_big = ImageFont.truetype(config.FONT_BOLD, 88)
+        except OSError:
+            font_big = ImageFont.load_default()
+        anchor_y = config.CLIP_Y + config.CLIP_H // 3
+        _draw_centered(draw, hook_text, font_big, anchor_y, config.COLORS["text"])
+
     bg_path = config.TEMP_DIR / "background.png"
     img.save(bg_path)
     return bg_path
 
 
+def _paint_vertical_gradient(
+    img: Image.Image,
+    x: int, y: int, w: int, h: int,
+    top_rgb: tuple, bot_rgb: tuple,
+) -> None:
+    """이미지 [x,y,w,h] 영역을 top_rgb→bot_rgb 수직 그라디언트로 칠한다."""
+    grad = Image.new("RGB", (1, h))
+    for i in range(h):
+        t = i / max(h - 1, 1)
+        c = tuple(int(top_rgb[k] + (bot_rgb[k] - top_rgb[k]) * t) for k in range(3))
+        grad.putpixel((0, i), c)
+    grad = grad.resize((w, h), Image.NEAREST)
+    img.paste(grad, (x, y))
+
+
 def compose_video(
-    clip_path:   Path,
+    clip_path:   Path | None,
     bg_path:     Path,
     ass_path:    Path,
     output_path: Path,
@@ -58,35 +96,54 @@ def compose_video(
     duration:    int  = 55,
     gifs:        list = None,   # [{"path": Path, "start": float, "duration": float, "size": int}]
 ) -> None:
-    """Composite background + clip + GIFs + subtitles + audio into final MP4."""
+    """Composite background + clip + GIFs + subtitles + audio into final MP4.
+
+    clip_path가 None이면 클립 합성 단계를 건너뛰고 배경(그라디언트+큰 hook)만 사용.
+    """
     ass_esc = _ffmpeg_path(ass_path)
     gifs = gifs or []
+    has_clip = clip_path is not None
 
-    # 4:3 중앙 크롭 → 1080x810로 리사이즈 → CLIP zone 중앙에 배치 (letterbox 없음)
+    # 4:3 중앙 크롭 → 1080x810 (클립 있을 때만 사용)
     clip_w  = 1080
     clip_h  = clip_w * 3 // 4                       # 810
     clip_y  = config.CLIP_Y + (config.CLIP_H - clip_h) // 2  # 555
 
-    # 인풋 순서: 0=bg, 1=clip, 2=[tts], 3=bgm, 4+=gifs
-    inputs = ["-loop", "1", "-i", str(bg_path), "-i", str(clip_path)]
+    # 인풋 인덱스 동적 할당
+    inputs = ["-loop", "1", "-i", str(bg_path)]   # 0 = bg
+    next_idx = 1
+    if has_clip:
+        inputs += ["-i", str(clip_path)]
+        next_idx += 1
     if tts_path:
         inputs += ["-i", str(tts_path)]
-        bgm_idx = 3
+        tts_idx = next_idx
+        next_idx += 1
     else:
-        bgm_idx = 2
+        tts_idx = None
     inputs += ["-i", str(bgm_path)]
+    bgm_idx = next_idx
+    next_idx += 1
 
-    gif_idx_start = bgm_idx + 1
+    gif_idx_start = next_idx
     for g in gifs:
         # 짧은 GIF는 stream_loop으로 자동 루프
         inputs += ["-stream_loop", "-1", "-i", str(g["path"])]
 
     # ── 비디오 필터 ─────────────────────────────────────────────────
-    parts = [
-        f"[1:v]crop='min(iw\\,ih*4/3)':ih,scale={clip_w}:{clip_h}[clip]",
-        f"[0:v][clip]overlay=0:{clip_y}[vbase0]",
-    ]
-    cur = "vbase0"
+    parts: list[str] = []
+    if has_clip:
+        parts.append(
+            f"[1:v]crop='min(iw\\,ih*4/3)':ih,scale={clip_w}:{clip_h}[clip]"
+        )
+        parts.append(
+            f"[0:v][clip]overlay=0:{clip_y}[vbase0]"
+        )
+        cur = "vbase0"
+    else:
+        # 배경 PNG가 그대로 vbase0. format=yuv420p로 정렬해 후속 overlay 정상.
+        parts.append("[0:v]format=yuv420p[vbase0]")
+        cur = "vbase0"
     for i, g in enumerate(gifs):
         idx       = gif_idx_start + i
         size      = int(g.get("size") or 600)
@@ -111,7 +168,7 @@ def compose_video(
     # ── 오디오 필터 ─────────────────────────────────────────────────
     if tts_path:
         audio_filter = (
-            f"[2:a]volume=5.0[voice];"
+            f"[{tts_idx}:a]volume=5.0[voice];"
             f"[{bgm_idx}:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.08[bgm];"
             f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=3:normalize=0[aout]"
         )
