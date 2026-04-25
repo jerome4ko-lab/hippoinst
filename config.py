@@ -33,6 +33,8 @@ TTS_PROVIDER = os.getenv("TTS_PROVIDER", "elevenlabs")  # elevenlabs | typecast
 KLIPY_API_KEY     = os.getenv("KLIPY_API_KEY", "")
 KLIPY_CUSTOMER_ID = os.getenv("KLIPY_CUSTOMER_ID", "hippoinst")
 
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "")
+
 VIDEO_WIDTH    = 1080
 VIDEO_HEIGHT   = 1920
 VIDEO_DURATION = 55

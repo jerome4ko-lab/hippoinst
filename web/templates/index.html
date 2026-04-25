@@ -31,7 +31,37 @@
 <div class="container">
   <div class="grid">
 
-    <!-- ── 입력 패널 ── -->
+    <!-- ── 뉴스 검색 패널 (좌) ── -->
+    <div>
+      <div class="card">
+        <div class="card-title">🔎 최신 뉴스 검색</div>
+
+        <label class="field-label">주제</label>
+        <div class="topic-options">
+          <label class="topic-btn">
+            <input type="radio" name="news-topic" value="robot" checked>
+            <span>🤖 로봇</span>
+          </label>
+          <label class="topic-btn">
+            <input type="radio" name="news-topic" value="ai">
+            <span>🧠 AI</span>
+          </label>
+        </div>
+
+        <button class="btn btn-primary btn-block" onclick="searchNews()" id="btn-news-search">
+          🔎 뉴스 검색
+        </button>
+        <div class="hint" style="margin-top:8px">
+          최초 보도일 최신순 정렬. 토글을 누르면 상세 정보가 펼쳐집니다.
+        </div>
+
+        <div class="news-list" id="news-list">
+          <div class="news-empty">아직 검색하지 않았어요. 주제를 고르고 ‘뉴스 검색’을 누르세요.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 입력 패널 (가운데) ── -->
     <div>
 
       <!-- 기사 -->
@@ -296,6 +326,148 @@ function previewBgm(name, e) {
   audio.src = `/api/bgm/${name}`;
   audio.dataset.name = name;
   audio.play();
+}
+
+// ── News search (frontend stub — 백엔드 연결 전 샘플 데이터) ───────────
+const SAMPLE_NEWS = {
+  robot: [
+    {
+      date: '2026-04-19',
+      title: '"인간 세계기록 7분 앞당긴 로봇의 하프마라톤 — 스포츠의 종말인가?"',
+      keyword: 'Lightning robot Beijing half marathon 2026',
+      summary: "Honor의 휴머노이드 'Lightning'이 베이징 E-Town 하프마라톤 21.1km를 50분 26초에 완주. 인간 세계기록(57분 20초)을 약 7분 단축. 전년도 우승 기록(2시간 40분) 대비 1년 만에 3배 이상 향상. Honor 로봇이 금·은·동 3위 싹쓸이.",
+      links: [
+        'https://www.newshub.co.uk/science-technology/2026/04/24/robot-half-marathon-breakthrough-fuels-debate-over-sport-and-industry/',
+        'https://itwire.com/your-it-news/mobility/the-machines-are-running,-fighting,-and-herding-pigs-2026-is-the-year-robots-got-real.html',
+        'https://www.lankabusinessnews.com/full-process-all-element-test-run-conducted-for-2026-beijing-e-town-humanoid-robot-half-marathon/',
+        'https://humanoid.press/',
+        'https://www.militarytimes.com/unmanned/2026/04/24/ukraine-to-field-25000-ground-robots-in-push-to-replace-soldiers-for-frontline-logistics/',
+      ],
+    },
+    {
+      date: '2026-04-13',
+      title: '"병사 대신 로봇이 참호 점령 — 전쟁의 규칙이 바뀌었다"',
+      keyword: 'Ukraine robots capture position drones 2026',
+      summary: '젤렌스키 대통령 공식 확인: 드론+지상 로봇만으로 러시아 진지 점령 성공(보병 투입 0, 아군 피해 0). 우크라이나 지상 로봇 3개월간 2만 2,000건 임무 수행. 2026년 상반기 무인 지상차량 2만 5,000대 추가 계약 예정.',
+      links: [
+        'https://www.militarytimes.com/unmanned/2026/04/24/ukraine-to-field-25000-ground-robots-in-push-to-replace-soldiers-for-frontline-logistics/',
+        'https://www.cnn.com/2026/04/20/europe/robots-ukraine-battlefield-drones-intl-cmd',
+        'https://ukrainesarmsmonitor.substack.com/p/drone-warfare-in-ukraine-unprecedented',
+        'https://www.rand.org/pubs/commentary/2026/04/robots-just-captured-a-russian-position-in-ukraine.html',
+        'https://www.themoscowtimes.com/2026/04/14/zelensky-says-kyiv-seized-a-russian-position-with-drones-and-robots-is-this-a-game-changer-a92497',
+      ],
+    },
+    {
+      date: '2026-04-02',
+      title: '"90분마다 로봇 한 대 조립 — 로봇이 로봇 만드는 공장 가동"',
+      keyword: 'Figure AI BotQ factory Figure 03 production 2026',
+      summary: 'Figure AI BotQ 공장에서 현재 90분마다 휴머노이드 1대 조립 중(CEO 직접 공개). Figure 03 스펙: 키 168cm, 무게 61kg, 40개 관절 신경망 제어, 배터리 1회 충전 4~5시간 가동, 발바닥 무선 유도 충전. 연간 목표 12,000대 → 50,000대 단계적 확대.',
+      links: [
+        'https://www.humanoidsdaily.com/news/the-shape-of-scale-new-figure-production-data-hints-at-exponential-ramp-up',
+        'https://www.humanoidsdaily.com/news/figure-claims-production-milestone-as-botq-ramps-up-figure-03-manufacturing',
+        'https://robohorizon.com/en-us/news/2026/04/figure-ai-now-builds-a-humanoid-robot-every-90-minutes/',
+        'https://letsdatascience.com/news/figure-ai-demonstrates-humanoid-robot-mobility-38158278',
+        'https://www.therobotreport.com/figure-ai-unveils-botq-high-volume-humanoid-manufacturing-facility/',
+      ],
+    },
+  ],
+  ai: [],   // AI 주제 샘플은 백엔드 연결 후 채울 예정
+};
+
+async function searchNews() {
+  const topic = document.querySelector('input[name="news-topic"]:checked')?.value || 'robot';
+  const btn   = document.getElementById('btn-news-search');
+  btn.disabled = true; btn.textContent = '⏳ 검색 중...';
+  const list = document.getElementById('news-list');
+  list.innerHTML = '<div class="news-empty">⏳ Brave Search에 묻고 있어요...</div>';
+
+  try {
+    const res = await fetch('/api/news-search', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ topic, limit: 15, freshness: 'pm' }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      // API 키 미설정 등 실패 시 → 샘플로 fallback
+      console.warn('news-search error:', data.error);
+      list.innerHTML = `<div class="news-empty">검색 실패: ${escapeHtml(data.error)}<br>(샘플 데이터로 표시)</div>`;
+      const items = (SAMPLE_NEWS[topic] || []).slice().sort((a,b) => b.date.localeCompare(a.date));
+      setTimeout(() => renderNewsList(items, topic), 1200);
+      return;
+    }
+    const items = (data.items || []).slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    renderNewsList(items, topic);
+  } catch(e) {
+    toast('오류: ' + e.message, 'error');
+    list.innerHTML = `<div class="news-empty">오류: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '🔎 뉴스 검색';
+  }
+}
+
+function renderNewsList(items, topic) {
+  const list = document.getElementById('news-list');
+  if (!items.length) {
+    list.innerHTML = `<div class="news-empty">‘${topic === 'robot' ? '로봇' : 'AI'}’ 주제 결과가 아직 없어요. (검색 API 연결 예정)</div>`;
+    return;
+  }
+  list.innerHTML = items.map(renderNewsItem).join('');
+}
+
+function renderNewsItem(it) {
+  const links = (it.links || []).map(u =>
+    /^https?:\/\//.test(u)
+      ? `<li><a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a></li>`
+      : `<li class="pending">${escapeHtml(u || '검색 필요')}</li>`
+  ).join('');
+
+  // 유튜브 원본(롱폼) — 정확한 URL이 있으면 그걸 쓰고, 없으면 키워드 검색 URL(롱폼 필터: >20분)
+  // sp=EgIYAg%253D%253D = "Long (>20 min)" 필터
+  const ytUrl = it.youtube_url
+    ? it.youtube_url
+    : `https://www.youtube.com/results?search_query=${encodeURIComponent(it.keyword || '')}&sp=EgIYAg%253D%253D`;
+  const ytLabel = it.youtube_url
+    ? '유튜브 원본 영상 (직접 링크)'
+    : '유튜브 롱폼 검색 (>20분 필터)';
+
+  const sourceRow = it.source
+    ? `<div class="news-field">
+         <div class="news-field-label">출처</div>
+         <div class="news-field-value">${escapeHtml(it.source)}${it.age ? ` · <span style="color:var(--muted)">${escapeHtml(it.age)}</span>` : ''}</div>
+       </div>`
+    : '';
+
+  const linksLabel = (it.links || []).length > 1 ? '관련 기사 링크' : '기사 본문';
+
+  return `
+    <details class="news-item">
+      <summary class="news-summary">
+        <span class="news-date">${escapeHtml(it.date || '')}</span>
+        <span class="news-title">${escapeHtml(it.title || '')}</span>
+      </summary>
+      <div class="news-body">
+        ${sourceRow}
+        <div class="news-field">
+          <div class="news-field-label">유튜브 검색 키워드</div>
+          <div class="news-field-value"><span class="news-keyword">${escapeHtml(it.keyword || '')}</span></div>
+        </div>
+        <div class="news-field">
+          <div class="news-field-label">${ytLabel}</div>
+          <div class="news-field-value">
+            <a href="${escapeHtml(ytUrl)}" target="_blank" rel="noopener">▶ ${escapeHtml(ytUrl)}</a>
+          </div>
+        </div>
+        <div class="news-field">
+          <div class="news-field-label">쇼츠 핵심 포인트</div>
+          <div class="news-field-value">${escapeHtml(it.summary || '')}</div>
+        </div>
+        <div class="news-field">
+          <div class="news-field-label">${linksLabel}</div>
+          <ol class="news-links">${links}</ol>
+        </div>
+      </div>
+    </details>
+  `;
 }
 
 // ── Generate script ───────────────────────────────────────

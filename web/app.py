@@ -42,6 +42,12 @@ class TTSPreviewRequest(BaseModel):
     text:     str = "안녕하세요, 힙포인사이트입니다. 오늘도 흥미로운 AI 소식을 들고 왔어요."
 
 
+class NewsSearchRequest(BaseModel):
+    topic:     str = "robot"          # robot | ai (or free-form query)
+    limit:     int = 15
+    freshness: str = "pm"             # pd | pw | pm | py
+
+
 class RenderRequest(BaseModel):
     articles: list[str] = []
     urls: list[str] = []
@@ -95,6 +101,16 @@ async def fact_check_api(req: FactCheckRequest):
     try:
         result = fact_check(articles, req.script)
         return {"result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/news-search")
+async def news_search_api(req: NewsSearchRequest):
+    from pipeline.news_search import search_news
+    try:
+        items = search_news(req.topic, limit=req.limit, freshness=req.freshness)
+        return {"items": items}
     except Exception as e:
         return {"error": str(e)}
 
