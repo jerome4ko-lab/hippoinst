@@ -95,14 +95,18 @@ def search_news(topic: str, *, limit: int = 7, **_ignored) -> list[dict]:
     )
 
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    # 뉴스 큐레이션은 Haiku 4.5 사용 — Sonnet 대비 별도 rate limit 풀 + 저렴·빠름.
+    # web_search 응답이 context에 누적되어 Sonnet의 분당 30k input token 한도를 쉽게 초과.
     msg = client.messages.create(
-        model=config.CLAUDE_MODEL,
+        model="claude-haiku-4-5-20251001",
         max_tokens=4096,
         system=system,
         tools=[{
             "type":     "web_search_20250305",
             "name":     "web_search",
-            "max_uses": 7,
+            # 4회로 제한 — 호출당 input token 누적 ~25k 정도로 유지해
+            # Haiku 분당 50k 한도 안에 안정적으로 들어가도록.
+            "max_uses": 4,
         }],
         messages=[{"role": "user", "content": user_msg}],
     )
