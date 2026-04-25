@@ -41,3 +41,6 @@ web/.omc/
 .zencoder/
 /skills/
 
+# Remotion 잡 자산 (Python 오케스트레이터가 생성)
+remotion/public/job_*/
+

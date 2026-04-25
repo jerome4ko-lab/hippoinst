@@ -27,6 +27,10 @@ JSON 형식으로만 응답하세요 (마크다운 코드 블록 제외):
     {"text": "이 로봇은"},
     {"text": "단 하루 만에"},
     {"text": "작업을 학습합니다"}
+  ],
+  "gifs": [
+    {"keyword_en": "robot dancing", "start": 12.5, "duration": 2.0},
+    {"keyword_en": "facepalm", "start": 28.0, "duration": 1.8}
   ]
 }
 
@@ -43,7 +47,14 @@ JSON 형식으로만 응답하세요 (마크다운 코드 블록 제외):
 - 한 청크 3~8자 (공백 제외), 의미 단위로 자연스럽게 끊기
 - 너무 길거나 너무 짧은 줄 없이 균등하게
 - start/end 같은 시간값은 넣지 마세요 (음성 alignment에서 자동 산출)
-- subtitles의 text를 모두 이어붙이면 narration 전체 텍스트와 일치해야 합니다"""
+- subtitles의 text를 모두 이어붙이면 narration 전체 텍스트와 일치해야 합니다
+
+GIF 오버레이(gifs) 규칙 — 영상 재미용 리액션 GIF (선택, 0~3개):
+- keyword_en: 반드시 영어 키워드 (Klipy 검색 hit율↑). 짧고 시각적으로 강한 단어 — "robot dancing", "wow", "facepalm", "mind blown", "mic drop", "explosion", "thumbs up" 등.
+- start: narration 흐름상 그 표현이 어울리는 순간의 초 단위 시각 (대략 추정 OK — TTS 길이는 narration 글자수 기반 ~3.5자/초로 가늠).
+- duration: 1.5~3.0초. 너무 길면 지루.
+- 0~3개. 일반적으로 1~2개가 가장 효과적. 진지한 주제는 0개도 OK.
+- start 값들이 너무 가깝지 않게 (최소 5초 간격)."""
 
 
 def load_articles(path: Path) -> list[str]:
