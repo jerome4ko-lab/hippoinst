@@ -1,15 +1,20 @@
 import React from "react";
 import {
   AbsoluteFill,
+  AnimatedImage,
   Audio,
   Easing,
   Img,
   Sequence,
   Video,
   interpolate,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
+
+const _resolveSrc = (s: string): string =>
+  /^(https?:|file:|data:|blob:)/.test(s) ? s : staticFile(s);
 
 export const FPS = 30;
 export const VIDEO_WIDTH = 1080;
@@ -19,6 +24,14 @@ export type SubtitleChunk = {
   text: string;
   start: number;
   end: number;
+};
+
+export type GifOverlay = {
+  src: string;          // file path (staticFile) or remote URL with CORS
+  start: number;        // seconds
+  duration: number;     // seconds
+  size?: number;        // pixels (default 480)
+  rotate?: number;      // entrance rotate-from angle in degrees (default -6)
 };
 
 export type ShortProps = {
@@ -32,6 +45,7 @@ export type ShortProps = {
   ttsVolume: number;
   durationInSeconds: number;
   subtitles: SubtitleChunk[];
+  gifs?: GifOverlay[];
 };
 
 const LAYOUT = {
@@ -67,9 +81,12 @@ export const defaultProps: ShortProps = {
     { text: "작업을 학습합니다", start: 3.0, end: 5.0 },
     { text: "충격적이죠",       start: 5.0, end: 7.0 },
   ],
+  gifs: [],
 };
 
 const SUBTITLE_TOP = LAYOUT.clip.y + LAYOUT.clip.h - 200;
+// Center of clip zone (vertically) — used as GIF anchor
+const GIF_CENTER_Y = LAYOUT.clip.y + LAYOUT.clip.h / 2;
 
 // ── Subtitle chunk view ──────────────────────────────────────────────────────
 
@@ -83,14 +100,11 @@ const SubtitleChunkView: React.FC<{ text: string; durationInFrames: number }> = 
   const exitFrames  = Math.min(6, Math.max(2, Math.floor(durationInFrames * 0.25)));
   const exitStart   = Math.max(0, durationInFrames - exitFrames);
 
-  // Entrance: subtle overshoot pop (Easing.bezier with y > 1)
   const enter = interpolate(frame, [0, enterFrames], [0, 1], {
     easing: Easing.bezier(0.34, 1.56, 0.64, 1),
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-
-  // Exit: ease-in fade only (no scale change to avoid jarring shrink)
   const exit = interpolate(frame, [exitStart, durationInFrames], [0, 1], {
     easing: Easing.in(Easing.cubic),
     extrapolateLeft: "clamp",
@@ -135,17 +149,76 @@ const SubtitleChunkView: React.FC<{ text: string; durationInFrames: number }> = 
   );
 };
 
+// ── GIF overlay sticker ─────────────────────────────────────────────────────
+
+const GifOverlayView: React.FC<{
+  src: string;
+  durationInFrames: number;
+  size: number;
+  rotateFrom: number;
+}> = ({ src, durationInFrames, size, rotateFrom }) => {
+  const frame = useCurrentFrame();
+
+  const enterFrames = Math.min(12, Math.max(6, Math.floor(durationInFrames * 0.3)));
+  const exitFrames  = Math.min(8, Math.max(3, Math.floor(durationInFrames * 0.25)));
+  const exitStart   = Math.max(0, durationInFrames - exitFrames);
+
+  // Snappy overshoot pop entrance
+  const enter = interpolate(frame, [0, enterFrames], [0, 1], {
+    easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const exit = interpolate(frame, [exitStart, durationInFrames], [0, 1], {
+    easing: Easing.in(Easing.cubic),
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+
+  const opacity = Math.max(0, enter - exit);
+  const scale   = interpolate(enter, [0, 1], [0.55, 1]) - exit * 0.15;
+  const rotate  = interpolate(enter, [0, 1], [rotateFrom, 0]);
+
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      <div style={{
+        position: "absolute",
+        top: GIF_CENTER_Y - size / 2,
+        left: (VIDEO_WIDTH - size) / 2,
+        width: size,
+        height: size,
+        opacity,
+        transform: `scale(${scale}) rotate(${rotate}deg)`,
+        filter: "drop-shadow(0 12px 32px rgba(0,0,0,0.55))",
+      }}>
+        <AnimatedImage
+          src={_resolveSrc(src)}
+          width={size}
+          height={size}
+          fit="contain"
+          loopBehavior="loop"
+          style={{
+            borderRadius: 24,
+            background: "transparent",
+          }}
+        />
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 // ── Main composition ────────────────────────────────────────────────────────
 
 export const HippoShort: React.FC<ShortProps> = (props) => {
   const { fps } = useVideoConfig();
+  const gifs = props.gifs ?? [];
 
   return (
     <AbsoluteFill style={{ backgroundColor: COLOR.bg }}>
       {/* Pre-rendered background OR React fallback */}
       {props.bgImageSrc ? (
         <Img
-          src={props.bgImageSrc}
+          src={_resolveSrc(props.bgImageSrc)}
           style={{
             position: "absolute",
             top: 0,
@@ -214,12 +287,33 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
       }}>
         {props.clipSrc && (
           <Video
-            src={props.clipSrc}
+            src={_resolveSrc(props.clipSrc)}
             muted
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         )}
       </div>
+
+      {/* GIF overlays — center stickers floating above clip, below subtitles */}
+      {gifs.map((gif, i) => {
+        const startFrame = Math.round(gif.start * fps);
+        const dur        = Math.max(1, Math.round(gif.duration * fps));
+        return (
+          <Sequence
+            key={`gif-${i}-${gif.start}`}
+            from={startFrame}
+            durationInFrames={dur}
+            layout="none"
+          >
+            <GifOverlayView
+              src={gif.src}
+              durationInFrames={dur}
+              size={gif.size ?? 480}
+              rotateFrom={gif.rotate ?? -6}
+            />
+          </Sequence>
+        );
+      })}
 
       {/* Subtitle chunks — each in its own Sequence with entrance animation */}
       {props.subtitles.map((sub, i) => {
@@ -240,8 +334,8 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
       })}
 
       {/* Audio */}
-      {props.ttsSrc && <Audio src={props.ttsSrc} volume={props.ttsVolume} />}
-      {props.bgmSrc && <Audio src={props.bgmSrc} volume={props.bgmVolume} />}
+      {props.ttsSrc && <Audio src={_resolveSrc(props.ttsSrc)} volume={props.ttsVolume} />}
+      {props.bgmSrc && <Audio src={_resolveSrc(props.bgmSrc)} volume={props.bgmVolume} />}
     </AbsoluteFill>
   );
 };

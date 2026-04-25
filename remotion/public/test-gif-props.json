@@ -1,0 +1,19 @@
+{
+  "hook": "AI 로봇이 단 하루 만에",
+  "hashtags": "#AI #로봇 #미래기술 #힙포인사이트",
+  "bgImageSrc": null,
+  "clipSrc": null,
+  "ttsSrc": null,
+  "bgmSrc": null,
+  "bgmVolume": 0.08,
+  "ttsVolume": 1.0,
+  "durationInSeconds": 6,
+  "subtitles": [
+    { "text": "이 로봇은",       "start": 0.0, "end": 1.5 },
+    { "text": "단 하루 만에",     "start": 1.5, "end": 3.0 },
+    { "text": "작업을 학습합니다", "start": 3.0, "end": 5.0 }
+  ],
+  "gifs": [
+    { "src": "test.gif", "start": 1.0, "duration": 3.0, "size": 480, "rotate": -6 }
+  ]
+}
