@@ -60,10 +60,14 @@ def compose_video(
     """Composite background + clip + subtitles + audio into final MP4."""
     ass_esc = _ffmpeg_path(ass_path)
 
+    # 4:3 중앙 크롭 → 1080x810로 리사이즈 → CLIP zone 중앙에 배치 (letterbox 없음)
+    clip_w  = 1080
+    clip_h  = clip_w * 3 // 4                       # 810
+    clip_y  = config.CLIP_Y + (config.CLIP_H - clip_h) // 2  # 555
+
     video_filter = (
-        f"[1:v]scale=1080:{config.CLIP_H}:force_original_aspect_ratio=decrease,"
-        f"pad=1080:{config.CLIP_H}:(ow-iw)/2:(oh-ih)/2:black[clip];"
-        f"[0:v][clip]overlay=0:{config.CLIP_Y}[vbase];"
+        f"[1:v]crop='min(iw\\,ih*4/3)':ih,scale={clip_w}:{clip_h}[clip];"
+        f"[0:v][clip]overlay=0:{clip_y}[vbase];"
         f"[vbase]subtitles='{ass_esc}':fontsdir='{_ffmpeg_path(config.ASSETS_DIR)}'[vout]"
     )
 
