@@ -2,8 +2,11 @@ import React from "react";
 import {
   AbsoluteFill,
   Audio,
+  Easing,
   Img,
+  Sequence,
   Video,
+  interpolate,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
@@ -57,31 +60,98 @@ export const defaultProps: ShortProps = {
   bgmSrc: null,
   bgmVolume: 0.08,
   ttsVolume: 1.0,
-  durationInSeconds: 55,
+  durationInSeconds: 8,
   subtitles: [
     { text: "이 로봇은",       start: 0.0, end: 1.5 },
     { text: "단 하루 만에",     start: 1.5, end: 3.0 },
     { text: "작업을 학습합니다", start: 3.0, end: 5.0 },
+    { text: "충격적이죠",       start: 5.0, end: 7.0 },
   ],
 };
 
-export const HippoShort: React.FC<ShortProps> = (props) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const t = frame / fps;
+const SUBTITLE_TOP = LAYOUT.clip.y + LAYOUT.clip.h - 200;
 
-  const activeSub = props.subtitles.find((s) => t >= s.start && t < s.end);
+// ── Subtitle chunk view ──────────────────────────────────────────────────────
+
+const SubtitleChunkView: React.FC<{ text: string; durationInFrames: number }> = ({
+  text,
+  durationInFrames,
+}) => {
+  const frame = useCurrentFrame();
+
+  const enterFrames = Math.min(9, Math.max(3, Math.floor(durationInFrames * 0.4)));
+  const exitFrames  = Math.min(6, Math.max(2, Math.floor(durationInFrames * 0.25)));
+  const exitStart   = Math.max(0, durationInFrames - exitFrames);
+
+  // Entrance: subtle overshoot pop (Easing.bezier with y > 1)
+  const enter = interpolate(frame, [0, enterFrames], [0, 1], {
+    easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+
+  // Exit: ease-in fade only (no scale change to avoid jarring shrink)
+  const exit = interpolate(frame, [exitStart, durationInFrames], [0, 1], {
+    easing: Easing.in(Easing.cubic),
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+
+  const opacity    = Math.max(0, enter - exit);
+  const scale      = interpolate(enter, [0, 1], [0.82, 1]);
+  const translateY = interpolate(enter, [0, 1], [22, 0]);
+
+  return (
+    <AbsoluteFill style={{
+      pointerEvents: "none",
+      justifyContent: "flex-start",
+      alignItems: "center",
+    }}>
+      <div style={{
+        position: "absolute",
+        top: SUBTITLE_TOP,
+        left: 0,
+        right: 0,
+        display: "flex",
+        justifyContent: "center",
+        padding: "0 60px",
+        opacity,
+        transform: `translateY(${translateY}px) scale(${scale})`,
+      }}>
+        <span style={{
+          color: COLOR.accent,
+          fontSize: 82,
+          fontWeight: 700,
+          textAlign: "center",
+          textShadow: "0 4px 14px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.95)",
+          fontFamily: "Gmarket Sans TTF, Pretendard, sans-serif",
+          letterSpacing: -1.5,
+          lineHeight: 1.05,
+        }}>
+          {text}
+        </span>
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+// ── Main composition ────────────────────────────────────────────────────────
+
+export const HippoShort: React.FC<ShortProps> = (props) => {
+  const { fps } = useVideoConfig();
 
   return (
     <AbsoluteFill style={{ backgroundColor: COLOR.bg }}>
-      {/* Banner zone — pre-rendered PNG OR fallback color block */}
+      {/* Pre-rendered background OR React fallback */}
       {props.bgImageSrc ? (
         <Img
           src={props.bgImageSrc}
           style={{
             position: "absolute",
-            top: 0, left: 0,
-            width: VIDEO_WIDTH, height: VIDEO_HEIGHT,
+            top: 0,
+            left: 0,
+            width: VIDEO_WIDTH,
+            height: VIDEO_HEIGHT,
             objectFit: "cover",
           }}
         />
@@ -89,17 +159,26 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
         <>
           <div style={{
             position: "absolute",
-            top: LAYOUT.banner.y, left: 0,
-            width: "100%", height: LAYOUT.banner.h,
+            top: LAYOUT.banner.y,
+            left: 0,
+            width: "100%",
+            height: LAYOUT.banner.h,
             backgroundColor: COLOR.bannerBg,
           }} />
           <div style={{
             position: "absolute",
-            top: LAYOUT.title.y, left: 0,
-            width: "100%", height: LAYOUT.title.h,
-            display: "flex", justifyContent: "center", alignItems: "center",
-            color: COLOR.accent, fontSize: 64, fontWeight: 700,
-            textAlign: "center", padding: "0 60px",
+            top: LAYOUT.title.y,
+            left: 0,
+            width: "100%",
+            height: LAYOUT.title.h,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            color: COLOR.accent,
+            fontSize: 64,
+            fontWeight: 700,
+            textAlign: "center",
+            padding: "0 60px",
             fontFamily: "Gmarket Sans TTF, Pretendard, sans-serif",
             textShadow: "2px 2px 0 rgba(0,0,0,0.6)",
           }}>
@@ -107,10 +186,15 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
           </div>
           <div style={{
             position: "absolute",
-            top: LAYOUT.hash.y, left: 0,
-            width: "100%", height: LAYOUT.hash.h,
-            display: "flex", justifyContent: "center", alignItems: "center",
-            color: COLOR.hashtag, fontSize: 38,
+            top: LAYOUT.hash.y,
+            left: 0,
+            width: "100%",
+            height: LAYOUT.hash.h,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            color: COLOR.hashtag,
+            fontSize: 38,
             fontFamily: "Gmarket Sans TTF, Pretendard, sans-serif",
           }}>
             {props.hashtags}
@@ -121,8 +205,10 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
       {/* Clip zone */}
       <div style={{
         position: "absolute",
-        top: LAYOUT.clip.y, left: 0,
-        width: "100%", height: LAYOUT.clip.h,
+        top: LAYOUT.clip.y,
+        left: 0,
+        width: "100%",
+        height: LAYOUT.clip.h,
         backgroundColor: "#000",
         overflow: "hidden",
       }}>
@@ -135,36 +221,27 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
         )}
       </div>
 
-      {/* Subtitle chunk — placed near bottom of clip zone */}
-      {activeSub && (
-        <div style={{
-          position: "absolute",
-          left: 0, right: 0,
-          top: LAYOUT.clip.y + LAYOUT.clip.h - 140,
-          display: "flex", justifyContent: "center", alignItems: "center",
-          padding: "0 60px",
-        }}>
-          <span style={{
-            color: COLOR.accent,
-            fontSize: 78,
-            fontWeight: 700,
-            textAlign: "center",
-            textShadow: "0 4px 12px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.95)",
-            fontFamily: "Gmarket Sans TTF, Pretendard, sans-serif",
-            letterSpacing: -1,
-          }}>
-            {activeSub.text}
-          </span>
-        </div>
-      )}
+      {/* Subtitle chunks — each in its own Sequence with entrance animation */}
+      {props.subtitles.map((sub, i) => {
+        const next       = props.subtitles[i + 1];
+        const startFrame = Math.round(sub.start * fps);
+        const endTime    = next ? next.start : sub.end;
+        const dur        = Math.max(1, Math.round((endTime - sub.start) * fps));
+        return (
+          <Sequence
+            key={`sub-${i}-${sub.start}`}
+            from={startFrame}
+            durationInFrames={dur}
+            layout="none"
+          >
+            <SubtitleChunkView text={sub.text} durationInFrames={dur} />
+          </Sequence>
+        );
+      })}
 
       {/* Audio */}
-      {props.ttsSrc && (
-        <Audio src={props.ttsSrc} volume={props.ttsVolume} />
-      )}
-      {props.bgmSrc && (
-        <Audio src={props.bgmSrc} volume={props.bgmVolume} />
-      )}
+      {props.ttsSrc && <Audio src={props.ttsSrc} volume={props.ttsVolume} />}
+      {props.bgmSrc && <Audio src={props.bgmSrc} volume={props.bgmVolume} />}
     </AbsoluteFill>
   );
 };
