@@ -9,8 +9,9 @@ import config
 
 _KLIPY_BASE = "https://api.klipy.com/api/v1"
 
-# AnimatedImage가 직접 디코드 가능한 포맷 우선. mp4는 <Video> 라우트 필요.
-_FORMAT_PRIORITY = ("webp", "gif", "mp4", "webm")
+# mp4 우선 — ffmpeg/Remotion <Video> 모두 안전, Klipy md/mp4는 약 300KB로 가장 작음.
+# (로컬 ffmpeg가 animated WebP 디코드 못 하는 경우가 흔하므로 mp4를 1순위.)
+_FORMAT_PRIORITY = ("mp4", "webm", "webp", "gif")
 
 # 480px 스티커 기준에 적합한 사이즈 티어 (md ~496px > hd > sm > xs)
 _TIER_PRIORITY = ("md", "hd", "sm", "xs")

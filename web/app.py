@@ -160,7 +160,10 @@ def _run_pipeline(job_id: str, req: RenderRequest):
             chunks = chunk_narration(script["narration"])
         ass_path = generate_chunk_ass(chunks, words, tts_duration)
 
-        upd(82, "영상 합성 중...")
+        upd(78, "GIF 페치 중...")
+        gif_records = _fetch_gifs(script.get("gifs") or [])
+
+        upd(85, "영상 합성 중...")
         bgm_path = config.BGM_MAP.get(req.bgm, config.BGM_FALLBACK)
         if not Path(str(bgm_path)).exists():
             bgm_path = config.BGM_FALLBACK
@@ -169,7 +172,7 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         output_path = config.OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{keyword}.mp4"
 
         compose_video(clip_path, bg_path, ass_path, output_path, bgm_path,
-                      tts_path=tts_path, duration=video_duration)
+                      tts_path=tts_path, duration=video_duration, gifs=gif_records)
 
         jobs[job_id].update({
             "status": "done", "progress": 100,
@@ -178,6 +181,29 @@ def _run_pipeline(job_id: str, req: RenderRequest):
 
     except Exception as e:
         jobs[job_id].update({"status": "error", "progress": 0, "message": str(e)})
+
+
+def _fetch_gifs(specs: list) -> list[dict]:
+    """script['gifs'] 항목들을 Klipy로 페치. 실패한 항목은 조용히 스킵."""
+    if not specs:
+        return []
+    from pipeline.gif_fetch import fetch as fetch_gif
+    out = []
+    for g in specs:
+        kw = g.get("keyword_en") or g.get("keyword")
+        if not kw:
+            continue
+        try:
+            path = fetch_gif(kw)
+            out.append({
+                "path":     path,
+                "start":    float(g.get("start", 0)),
+                "duration": float(g.get("duration", 2.0)),
+                "size":     int(g.get("size", 600)),
+            })
+        except Exception as exc:
+            print(f"[gif] {kw!r} fetch 실패: {exc}", flush=True)
+    return out
 
 
 if __name__ == "__main__":

@@ -56,43 +56,69 @@ def compose_video(
     bgm_path:    Path,
     tts_path:    Path = None,
     duration:    int  = 55,
+    gifs:        list = None,   # [{"path": Path, "start": float, "duration": float, "size": int}]
 ) -> None:
-    """Composite background + clip + subtitles + audio into final MP4."""
+    """Composite background + clip + GIFs + subtitles + audio into final MP4."""
     ass_esc = _ffmpeg_path(ass_path)
+    gifs = gifs or []
 
     # 4:3 중앙 크롭 → 1080x810로 리사이즈 → CLIP zone 중앙에 배치 (letterbox 없음)
     clip_w  = 1080
     clip_h  = clip_w * 3 // 4                       # 810
     clip_y  = config.CLIP_Y + (config.CLIP_H - clip_h) // 2  # 555
 
-    video_filter = (
-        f"[1:v]crop='min(iw\\,ih*4/3)':ih,scale={clip_w}:{clip_h}[clip];"
-        f"[0:v][clip]overlay=0:{clip_y}[vbase];"
-        f"[vbase]subtitles='{ass_esc}':fontsdir='{_ffmpeg_path(config.ASSETS_DIR)}'[vout]"
-    )
-
+    # 인풋 순서: 0=bg, 1=clip, 2=[tts], 3=bgm, 4+=gifs
+    inputs = ["-loop", "1", "-i", str(bg_path), "-i", str(clip_path)]
     if tts_path:
-        # TTS (full volume) + BGM (background)
+        inputs += ["-i", str(tts_path)]
+        bgm_idx = 3
+    else:
+        bgm_idx = 2
+    inputs += ["-i", str(bgm_path)]
+
+    gif_idx_start = bgm_idx + 1
+    for g in gifs:
+        # 짧은 GIF는 stream_loop으로 자동 루프
+        inputs += ["-stream_loop", "-1", "-i", str(g["path"])]
+
+    # ── 비디오 필터 ─────────────────────────────────────────────────
+    parts = [
+        f"[1:v]crop='min(iw\\,ih*4/3)':ih,scale={clip_w}:{clip_h}[clip]",
+        f"[0:v][clip]overlay=0:{clip_y}[vbase0]",
+    ]
+    cur = "vbase0"
+    for i, g in enumerate(gifs):
+        idx       = gif_idx_start + i
+        size      = int(g.get("size") or 600)
+        # 클립 영역 중앙(870)에서 GIF 중앙. Remotion GIF_CENTER_Y와 동일.
+        gy        = config.CLIP_Y + config.CLIP_H // 2 - 90 - size // 2
+        start     = float(g["start"])
+        end       = start + float(g["duration"])
+        next_lbl  = f"vbase{i+1}"
+        parts.append(
+            f"[{idx}:v]scale={size}:{size}:force_original_aspect_ratio=decrease[g{i}]"
+        )
+        parts.append(
+            f"[{cur}][g{i}]overlay=(W-w)/2:{gy}:enable='between(t,{start:.2f},{end:.2f})'[{next_lbl}]"
+        )
+        cur = next_lbl
+
+    parts.append(
+        f"[{cur}]subtitles='{ass_esc}':fontsdir='{_ffmpeg_path(config.ASSETS_DIR)}'[vout]"
+    )
+    video_filter = ";".join(parts)
+
+    # ── 오디오 필터 ─────────────────────────────────────────────────
+    if tts_path:
         audio_filter = (
             f"[2:a]volume=5.0[voice];"
-            f"[3:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.08[bgm];"
+            f"[{bgm_idx}:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.08[bgm];"
             f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=3:normalize=0[aout]"
         )
-        inputs = [
-            "-loop", "1", "-i", str(bg_path),
-            "-i", str(clip_path),
-            "-i", str(tts_path),
-            "-i", str(bgm_path),
-        ]
     else:
         audio_filter = (
-            f"[2:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.15[aout]"
+            f"[{bgm_idx}:a]afade=t=out:st={max(duration-5,0)}:d=5,volume=0.15[aout]"
         )
-        inputs = [
-            "-loop", "1", "-i", str(bg_path),
-            "-i", str(clip_path),
-            "-i", str(bgm_path),
-        ]
 
     filter_complex = f"{video_filter};{audio_filter}"
 
