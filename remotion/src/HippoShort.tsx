@@ -85,8 +85,8 @@ export const defaultProps: ShortProps = {
 };
 
 const SUBTITLE_TOP = LAYOUT.clip.y + LAYOUT.clip.h - 200;
-// Center of clip zone (vertically) — used as GIF anchor
-const GIF_CENTER_Y = LAYOUT.clip.y + LAYOUT.clip.h / 2;
+// GIF 앵커 — 클립 영역 중앙에서 살짝 위로 (자막 침범 방지 + 시선 균형)
+const GIF_CENTER_Y = LAYOUT.clip.y + LAYOUT.clip.h / 2 - 90;
 
 // ── Subtitle chunk view ──────────────────────────────────────────────────────
 
@@ -308,7 +308,7 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
             <GifOverlayView
               src={gif.src}
               durationInFrames={dur}
-              size={gif.size ?? 480}
+              size={gif.size ?? 600}
               rotateFrom={gif.rotate ?? -6}
             />
           </Sequence>

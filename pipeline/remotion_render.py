@@ -115,7 +115,7 @@ def render_short(
             "src":      f"job_{job_id}/{dst.name}",
             "start":    g["start"],
             "duration": g["duration"],
-            "size":     480,
+            "size":     600,
             "rotate":   -6 if i % 2 == 0 else 5,
         })
 
