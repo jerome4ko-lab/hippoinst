@@ -43,9 +43,8 @@ class TTSPreviewRequest(BaseModel):
 
 
 class NewsSearchRequest(BaseModel):
-    topic:     str = "robot"          # robot | ai (or free-form query)
-    limit:     int = 15
-    freshness: str = "pm"             # pd | pw | pm | py
+    topic: str = "robot"          # robot | ai
+    limit: int = 7                # 5~8 권장
 
 
 class RenderRequest(BaseModel):
@@ -109,7 +108,7 @@ async def fact_check_api(req: FactCheckRequest):
 async def news_search_api(req: NewsSearchRequest):
     from pipeline.news_search import search_news
     try:
-        items = search_news(req.topic, limit=req.limit, freshness=req.freshness)
+        items = search_news(req.topic, limit=req.limit)
         return {"items": items}
     except Exception as e:
         return {"error": str(e)}

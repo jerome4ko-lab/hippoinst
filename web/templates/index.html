@@ -379,12 +379,12 @@ async function searchNews() {
   const btn   = document.getElementById('btn-news-search');
   btn.disabled = true; btn.textContent = '⏳ 검색 중...';
   const list = document.getElementById('news-list');
-  list.innerHTML = '<div class="news-empty">⏳ Brave Search에 묻고 있어요...</div>';
+  list.innerHTML = '<div class="news-empty">⏳ Claude에게 물어보는 중이에요 (~10초)</div>';
 
   try {
     const res = await fetch('/api/news-search', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ topic, limit: 15, freshness: 'pm' }),
+      body: JSON.stringify({ topic, limit: 7 }),
     });
     const data = await res.json();
     if (data.error) {

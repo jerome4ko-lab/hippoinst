@@ -1,138 +1,142 @@
-"""Brave Search News API 래퍼.
+"""Anthropic Claude + web_search 도구로 뉴스 검색.
 
-A 모델: Brave 응답을 그대로 우리 카드 스키마로 매핑. 시간 역순 보장.
+사용자 정형 프롬프트(휴머노이드 우선순위, 가상 URL 금지, 5개 링크,
+YouTube 검색 키워드, 쇼츠 핵심 포인트)를 그대로 적용하고
+시간 역순으로 5~8개 토픽을 반환한다.
 """
 from __future__ import annotations
 
+import json
 import re
-from datetime import datetime, timezone
-from typing import Optional
 
-import requests
+import anthropic
 
 import config
 
-_NEWS_URL = "https://api.search.brave.com/res/v1/news/search"
 
-# 주제 → 검색 쿼리. 자주 바꿔도 되는 부분.
+_SYSTEM_BASE = """당신은 힙포인사이트(@hippoinst) 채널의 뉴스 큐레이터입니다.
+주어진 주제에 대해 최근 한 달 이내의 핵심 뉴스를 web_search 도구로 직접 찾아,
+시청자의 호기심을 자극하는 쇼츠 소재로 정리합니다.
+
+⚠️ 중요 규칙:
+- 실제로 확인된 뉴스만 포함할 것
+- 기사 URL은 web_search로 실존 확인된 것만 기재
+- 불확실하거나 검색되지 않은 링크는 정확히 "검색 필요" 라는 문자열로 표기
+- 가상/추정 URL은 절대 만들지 말 것 (조작은 결격 사유)
+- 모든 항목은 최초 보도일 기준 시간 역순(date desc)으로 정렬
+
+조회수 유발 요소:
+- 충격적 기록 경신, 인간과의 비교, "처음으로~" 서사
+- 구체적 수치(속도·적재량·관절수·생산량 등) 포함
+"""
+
+_ROBOT_PRIORITY = """
+주제 우선순위(휴머노이드/로봇):
+- 하드웨어 성능 변화 (속도·적재량·관절수·자유도 등 수치)
+- 실제 스포츠·가사·군사·산업 현장에서의 시연
+- 대규모 생산·상용화 돌파구
+"""
+
+_AI_PRIORITY = """
+주제 우선순위(AI):
+- 모델·제품·기능의 명확한 돌파구 (벤치마크 신기록, 새 기능)
+- 실제 산업/제품 적용 사례, 대규모 도입
+- 정책·규제·소송 등 산업 영향이 큰 사건
+"""
+
+_OUTPUT_FORMAT = """
+JSON으로만 응답하세요(마크다운/설명 일체 없이, 코드블록 사용 금지):
+{
+  "items": [
+    {
+      "date":        "YYYY-MM-DD",
+      "title":       "쇼츠용 호기심 자극 한국어 제목 (25자 이내 권장)",
+      "keyword":     "YouTube 검색 키워드 (영어 권장)",
+      "summary":     "구체적 수치 포함 2~3문장 (한국어)",
+      "links":       ["https://...", "검색 필요", "..."],
+      "youtube_url": "https://www.youtube.com/watch?v=... (롱폼 원본, 모르면 빈 문자열)"
+    }
+  ]
+}
+
+- items 길이는 5~8개
+- links는 항목당 최대 5개. 실존 URL과 "검색 필요"만 허용
+- date는 YYYY-MM-DD 형식 필수
+"""
+
 _TOPIC_QUERY = {
-    "robot": "humanoid robot",
-    "ai":    "AI breakthrough",
+    "robot": "휴머노이드 로봇 / humanoid robot 최근 한 달 핵심 뉴스",
+    "ai":    "AI 기술·제품·사건 최근 한 달 핵심 뉴스",
 }
 
 
-def search_news(topic: str, *, limit: int = 15, freshness: str = "pm") -> list[dict]:
-    """topic 키워드로 Brave News 검색 → 시간 역순 카드 리스트.
+def search_news(topic: str, *, limit: int = 7, **_ignored) -> list[dict]:
+    """Claude API + web_search 도구로 뉴스 검색.
 
-    freshness: pd(past day) / pw(past week) / pm(past month) / py(past year)
+    `limit` 은 모델에 토픽 개수 힌트로 전달. **_ignored 는 구버전 호환
+    (freshness 등 호출자 인자 무해 흡수).
     """
-    if not config.BRAVE_API_KEY:
-        raise RuntimeError("BRAVE_API_KEY 환경변수가 비어있어요")
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY 환경변수가 비어있어요")
 
-    q = _TOPIC_QUERY.get(topic, topic)
-    res = requests.get(
-        _NEWS_URL,
-        params={
-            "q":           q,
-            "count":       max(1, min(int(limit), 20)),
-            "freshness":   freshness,
-            "country":     "us",
-            "search_lang": "en",
-            "spellcheck":  "1",
-        },
-        headers={
-            "X-Subscription-Token": config.BRAVE_API_KEY,
-            "Accept":               "application/json",
-            "Accept-Encoding":      "gzip",
-        },
-        timeout=15,
+    priority = _ROBOT_PRIORITY if topic == "robot" else _AI_PRIORITY
+    system   = _SYSTEM_BASE + priority + _OUTPUT_FORMAT
+
+    user_msg = (
+        f"주제: {_TOPIC_QUERY.get(topic, topic)}\n"
+        f"web_search 도구로 최근 한 달 이내 가장 핵심적인 뉴스를 찾아 "
+        f"{max(5, min(int(limit), 8))}개 토픽으로 정리해주세요.\n"
+        f"각 토픽의 links 배열에는 실존 확인된 URL을 최대 5개까지 채우고, "
+        f"확신 없는 슬롯은 정확히 \"검색 필요\" 문자열로 두세요."
     )
-    if res.status_code != 200:
-        raise RuntimeError(f"Brave Search 실패 ({res.status_code}): {res.text[:300]}")
 
-    data = res.json() or {}
-    raw  = (data.get("results") or [])
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=config.CLAUDE_MODEL,
+        max_tokens=4096,
+        system=system,
+        tools=[{
+            "type":     "web_search_20250305",
+            "name":     "web_search",
+            "max_uses": 5,
+        }],
+        messages=[{"role": "user", "content": user_msg}],
+    )
 
-    items: list[dict] = []
-    for r in raw:
-        items.append(_to_card(r, fallback_keyword=q))
+    raw  = _extract_text(msg)
+    data = _parse_json(raw)
+    items = data.get("items") or []
 
-    # 시간 역순 (page_age 우선, 없으면 age 텍스트로 보조 정렬)
-    items.sort(key=lambda x: x.get("_sort") or "", reverse=True)
-    for it in items:
-        it.pop("_sort", None)
+    # 시간 역순 한 번 더 보정 (모델 정렬 누락 대비)
+    items.sort(key=lambda x: (x.get("date") or ""), reverse=True)
     return items
-
-
-def _to_card(r: dict, *, fallback_keyword: str) -> dict:
-    page_age   = (r.get("page_age") or "").strip()    # ISO8601 e.g. 2026-04-19T12:34:56
-    age_text   = (r.get("age") or "").strip()          # "2 hours ago"
-    title      = (r.get("title") or "").strip()
-    url        = (r.get("url") or "").strip()
-    desc       = _clean_html(r.get("description") or "")
-    meta       = r.get("meta_url") or {}
-    source     = (meta.get("hostname") or "").strip()
-    thumbnail  = ((r.get("thumbnail") or {}).get("src") or "").strip()
-
-    date_str   = _date_only(page_age) or _approx_date_from_age(age_text)
-    sort_key   = page_age or _age_to_pseudo_iso(age_text)
-
-    return {
-        "date":      date_str,
-        "title":     title,
-        "keyword":   _short_keyword(title) or fallback_keyword,
-        "summary":   desc,
-        "links":     [url] if url else [],     # A 모델: 기사 본문 URL 1개
-        "source":    source,
-        "thumbnail": thumbnail,
-        "age":       age_text,
-        "_sort":     sort_key,
-    }
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-_TAG_RE = re.compile(r"<[^>]+>")
+def _extract_text(msg) -> str:
+    """messages.create 응답에서 마지막 text 블록만 뽑아온다.
+    web_search 사용 시 tool_use / tool_result 블록이 섞일 수 있음.
+    """
+    texts: list[str] = []
+    for block in (msg.content or []):
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            texts.append(getattr(block, "text", "") or "")
+    if not texts:
+        raise RuntimeError("Claude 응답에 text 블록이 없어요")
+    return texts[-1].strip()
 
 
-def _clean_html(s: str) -> str:
-    return _TAG_RE.sub("", s).strip()
-
-
-def _date_only(iso: str) -> Optional[str]:
-    if not iso:
-        return None
-    try:
-        return iso[:10]   # 'YYYY-MM-DD'
-    except Exception:
-        return None
-
-
-def _short_keyword(title: str, max_words: int = 6) -> str:
-    """제목에서 노이즈 제거 후 앞 6단어만 → YouTube 검색용 키워드."""
-    t = re.sub(r"[\"'|\-—–:•\[\]\(\)]", " ", title)
-    t = re.sub(r"\s+", " ", t).strip()
-    return " ".join(t.split()[:max_words])
-
-
-def _approx_date_from_age(age: str) -> Optional[str]:
-    """'2 hours ago' 류 → 오늘 날짜로 근사. (page_age 없을 때만)"""
-    if not age:
-        return None
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-def _age_to_pseudo_iso(age: str) -> str:
-    """page_age가 비었을 때 정렬용 가짜 ISO 문자열. age 텍스트가 없으면 빈 문자열."""
-    if not age:
-        return ""
-    # 단순화: 단위별 가중치로 점수만 만들고 ISO 흉내. 정확한 시각 불요, 정렬 안정성만.
-    units = [("minute", 60), ("hour", 3600), ("day", 86400),
-             ("week", 604800), ("month", 2592000), ("year", 31536000)]
-    m = re.match(r"(\d+)\s+(\w+)", age)
-    if not m:
-        return ""
-    n, unit = int(m.group(1)), m.group(2).rstrip("s")
-    secs = next((s for u, s in units if u == unit), 86400) * n
-    ts   = datetime.now(timezone.utc).timestamp() - secs
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+def _parse_json(raw: str) -> dict:
+    s = raw.strip()
+    # 안전망: 모델이 코드블록을 흘렸을 때 떼어내기
+    if s.startswith("```"):
+        s = re.sub(r"^```(?:json)?\s*", "", s)
+        s = re.sub(r"\s*```\s*$", "", s)
+    # 첫 { ~ 마지막 } 만 잘라 JSON으로 보정
+    start = s.find("{")
+    end   = s.rfind("}")
+    if start >= 0 and end > start:
+        s = s[start : end + 1]
+    return json.loads(s)
