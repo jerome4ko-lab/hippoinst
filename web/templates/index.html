@@ -119,13 +119,30 @@
 
       <div class="divider"></div>
 
-      <label class="field-label">
-        나레이션
-        <span style="font-weight:400;color:var(--muted)">— 한 줄 = 한 문장, 직접 수정 가능</span>
-      </label>
-      <textarea class="narration-editor" id="s-narration"
-        placeholder="스크립트 생성 버튼을 누르면 여기에 나레이션이 표시됩니다.&#10;&#10;각 줄을 직접 수정한 뒤 영상 생성 버튼을 눌러주세요."></textarea>
-      <div class="hint">* 수정 후 '영상 생성'을 누르면 수정된 스크립트가 반영됩니다.</div>
+      <div class="narration-grid">
+        <!-- 좌: 생성된 원본 (read-only) -->
+        <div class="narration-col">
+          <label class="field-label">
+            원본 (생성됨)
+            <span style="font-weight:400;color:var(--muted)">— 참고용</span>
+          </label>
+          <textarea class="narration-editor narration-readonly" id="s-narration-orig" readonly
+            placeholder="스크립트 생성 버튼을 누르면 여기에 표시됩니다."></textarea>
+        </div>
+
+        <!-- 우: 수정 영역 + 팩트체크 -->
+        <div class="narration-col">
+          <div class="narration-header">
+            <label class="field-label" style="margin:0">수정 영역</label>
+            <button class="btn btn-ghost btn-sm" type="button"
+                    onclick="runFactCheck()" id="btn-factcheck" disabled>📋 팩트체크</button>
+          </div>
+          <textarea class="narration-editor" id="s-narration"
+            placeholder="좌측과 동일한 내용이 들어옵니다. 자유롭게 수정하세요."></textarea>
+          <div class="factcheck-result" id="factcheck-result" hidden></div>
+        </div>
+      </div>
+      <div class="hint">* 수정 후 '영상 생성'을 누르면 우측(수정) 내용이 반영됩니다.</div>
 
       <div class="btn-row" style="margin-top:auto;padding-top:16px">
         <button class="btn btn-ghost"      onclick="generateScript()"     id="btn-gen">✨ 스크립트 생성</button>
@@ -222,7 +239,12 @@ function fillScript(s) {
   document.getElementById('s-hook').value      = s.hook     || '';
   document.getElementById('s-hashtags').value  = s.hashtags || '';
   document.getElementById('s-bgm-tag').value   = s.bgm_tag  || '';
-  document.getElementById('s-narration').value = (s.narration || []).join('\n');
+  const text = (s.narration || []).join('\n');
+  document.getElementById('s-narration-orig').value = text;
+  document.getElementById('s-narration').value      = text;
+  document.getElementById('btn-factcheck').disabled = false;
+  const fcBox = document.getElementById('factcheck-result');
+  fcBox.hidden = true; fcBox.innerHTML = '';
   const r = document.querySelector(`input[name="bgm"][value="${s.bgm_tag}"]`);
   if (r) r.checked = true;
 }
@@ -235,6 +257,65 @@ function collectScript() {
     narration: document.getElementById('s-narration').value
                  .split('\n').map(l => l.trim()).filter(Boolean),
   };
+}
+
+// ── Fact check ────────────────────────────────────────────
+async function runFactCheck() {
+  const articles = ['article1','article2','article3']
+    .map(id => document.getElementById(id).value.trim())
+    .filter(Boolean);
+  const scriptText = document.getElementById('s-narration').value.trim();
+  if (!articles.length) { toast('원본 기사가 필요해요', 'error'); return; }
+  if (!scriptText)      { toast('검증할 스크립트가 비어있어요', 'error'); return; }
+
+  const btn = document.getElementById('btn-factcheck');
+  const box = document.getElementById('factcheck-result');
+  btn.disabled = true; btn.textContent = '검증 중...';
+  box.hidden = false;
+  box.className = 'factcheck-result loading';
+  box.innerHTML = '⏳ 기사와 대조 중...';
+
+  try {
+    const res  = await fetch('/api/fact-check', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ articles, script: scriptText }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      box.className = 'factcheck-result bad';
+      box.textContent = '오류: ' + data.error;
+      return;
+    }
+    renderFactCheck(data.result);
+  } catch(e) {
+    box.className = 'factcheck-result bad';
+    box.textContent = '오류: ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '📋 팩트체크';
+  }
+}
+
+function renderFactCheck(r) {
+  const box = document.getElementById('factcheck-result');
+  const status = r.status || 'warn';
+  const icon = { ok: '✅', warn: '⚠️', bad: '🚨' }[status] || '•';
+  box.className = `factcheck-result ${status}`;
+  let html = `<div class="fc-summary">${icon} ${r.summary || ''}</div>`;
+  if (Array.isArray(r.issues) && r.issues.length) {
+    html += '<ul class="fc-issues">';
+    for (const it of r.issues.slice(0, 5)) {
+      html += `<li><span class="fc-line">${escapeHtml(it.line || '')}</span>` +
+              `<span class="fc-reason">${escapeHtml(it.reason || '')}</span></li>`;
+    }
+    html += '</ul>';
+  }
+  box.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
 }
 
 // ── Render video ──────────────────────────────────────────

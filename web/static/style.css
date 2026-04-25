@@ -266,6 +266,41 @@ textarea:focus, input:focus { border-color: var(--accent); }
 .narration-editor:focus { border-color: var(--accent); }
 .hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
 
+/* ── Two-column narration (원본 / 수정) ──────────────────── */
+.narration-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.narration-col  { display: flex; flex-direction: column; gap: 6px; }
+.narration-col .narration-editor { min-height: 240px; }
+.narration-readonly { background: var(--bg2); color: var(--muted); cursor: default; }
+.narration-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.btn-sm {
+  padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: var(--radius-sm);
+}
+@media (max-width: 900px) {
+  .narration-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Fact-check result ─────────────────────────────────── */
+.factcheck-result {
+  margin-top: 8px; padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border);
+  background: var(--input-bg);
+  font-size: 13px; line-height: 1.5;
+  color: var(--text);
+}
+.factcheck-result[hidden] { display: none; }
+.factcheck-result.loading  { color: var(--muted); }
+.factcheck-result.ok       { border-color: #58a65a; background: rgba(88,166,90,0.10); }
+.factcheck-result.warn     { border-color: #d6a23a; background: rgba(214,162,58,0.12); }
+.factcheck-result.bad      { border-color: #d65a5a; background: rgba(214,90,90,0.12); }
+.factcheck-result .fc-summary { font-weight: 600; }
+.factcheck-result .fc-issues  { margin: 8px 0 0 0; padding-left: 16px; }
+.factcheck-result .fc-issues li { margin-bottom: 6px; list-style: disc; }
+.factcheck-result .fc-line   { display: block; font-weight: 500; }
+.factcheck-result .fc-reason { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
 /* ── Progress ────────────────────────────────────────── */
 .progress-wrap {
   display: none;

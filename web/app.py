@@ -31,6 +31,11 @@ class ScriptRequest(BaseModel):
     title: Optional[str] = None
 
 
+class FactCheckRequest(BaseModel):
+    articles: list[str] = []
+    script:   str = ""
+
+
 class RenderRequest(BaseModel):
     articles: list[str] = []
     urls: list[str] = []
@@ -67,6 +72,21 @@ async def generate_script_api(req: ScriptRequest):
         else:
             return {"error": "기사 또는 제목을 입력해주세요"}
         return {"script": script}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/fact-check")
+async def fact_check_api(req: FactCheckRequest):
+    from pipeline.script_generator import fact_check
+    articles = [a.strip() for a in req.articles if a.strip()]
+    if not articles:
+        return {"error": "팩트체크하려면 원본 기사가 필요해요"}
+    if not req.script.strip():
+        return {"error": "검증할 스크립트가 비어있어요"}
+    try:
+        result = fact_check(articles, req.script)
+        return {"result": result}
     except Exception as e:
         return {"error": str(e)}
 

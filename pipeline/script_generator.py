@@ -5,7 +5,15 @@ import config
 
 _SYSTEM = """당신은 힙포인사이트(@hippoinst) 유튜브 쇼츠 스크립트 작가입니다.
 AI·로봇·미래 신기술 채널을 위한 55초 쇼츠 스크립트를 작성합니다.
-규칙: 쉽고 친근한 한국어, 과장 없이 임팩트 있게, 숫자/데이터 포함으로 신뢰도 상승."""
+
+스타일: 쉽고 친근한 한국어, 과장 없이 임팩트 있게.
+
+★ 가장 중요한 원칙 — 팩트 엄수:
+- 제공된 기사 본문에 명시되어 있는 사실·숫자·이름·날짜·기관만 사용
+- 기사에 없는 수치(반응속도, 가격, 출시일, 회사명 등)는 절대 만들지 말 것
+- 일반 상식이라도 기사에 없으면 빼거나 "~한대요" 같은 전언 표현으로 처리
+- 추측·과장·일반화("앞으로 모든 직업이...") 금지
+- 의심스러우면 그 줄을 빼고 다른 사실 한 줄로 대체"""
 
 _JSON_FORMAT = """
 JSON 형식으로만 응답하세요 (마크다운 코드 블록 제외):
@@ -82,6 +90,53 @@ def generate_script(topic: str) -> dict:
 
 {_JSON_FORMAT}"""
     return _call_claude(prompt)
+
+
+_FACTCHECK_SYSTEM = """당신은 힙포인사이트의 팩트체커입니다.
+주어진 원본 기사들과 영상 스크립트를 비교하여 각 줄이 기사에 근거하는지 검증합니다.
+간결·정확·과장 없는 평가가 핵심입니다."""
+
+_FACTCHECK_FORMAT = """JSON으로만 응답하세요 (마크다운 제외):
+{
+  "status": "ok | warn | bad",
+  "summary": "한 문장 요약 (40자 이내)",
+  "issues": [
+    {"line": "문제 있는 스크립트 줄 그대로", "reason": "기사에 없는 수치/주장 등 사유 (30자 이내)"}
+  ]
+}
+
+판정 기준:
+- ok: 모든 줄이 기사에 근거. issues 빈 배열.
+- warn: 일부 표현이 기사에 직접 명시되진 않았지만 합리적 일반화. issues 1~3개.
+- bad: 기사와 충돌하거나 사실이 아닌 주장. issues에 최대 5개까지만.
+
+issues는 최대 5개. 사소한 표현 차이(말투, 어순)는 issue로 잡지 않습니다."""
+
+
+def fact_check(articles: list[str], script_text: str) -> dict:
+    """기사들과 (편집된) 스크립트 텍스트를 받아 팩트 검증 결과 반환."""
+    numbered = "\n\n".join(f"[기사 {i+1}]\n{a}" for i, a in enumerate(articles) if a.strip())
+    prompt = f"""다음은 원본 기사들과 그 기반으로 만든 영상 스크립트입니다.
+스크립트의 각 줄이 기사에 근거하는지 검증해주세요.
+
+──── 원본 기사 ────
+{numbered}
+
+──── 검증할 스크립트 ────
+{script_text}
+
+{_FACTCHECK_FORMAT}"""
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=config.CLAUDE_MODEL,
+        max_tokens=1024,
+        system=_FACTCHECK_SYSTEM,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = msg.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1].lstrip("json").strip()
+    return json.loads(raw)
 
 
 def _call_claude(user_prompt: str) -> dict:
