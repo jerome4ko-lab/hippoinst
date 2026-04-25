@@ -24,6 +24,9 @@ CLAUDE_MODEL      = "claude-sonnet-4-6"
 ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "zgDzx5jLLCqEp6Fl7Kl7")
 
+KLIPY_API_KEY     = os.getenv("KLIPY_API_KEY", "")
+KLIPY_CUSTOMER_ID = os.getenv("KLIPY_CUSTOMER_ID", "hippoinst")
+
 VIDEO_WIDTH    = 1080
 VIDEO_HEIGHT   = 1920
 VIDEO_DURATION = 55
