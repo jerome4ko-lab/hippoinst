@@ -144,30 +144,44 @@ def _typecast_to_mp3(text: str, voice_id: str, out_path: Path) -> None:
     if not config.TYPECAST_API_KEY:
         raise RuntimeError("TYPECAST_API_KEY 환경변수가 비어있어요")
 
-    payload = {
-        "voice_id": voice_id,
-        "text":     text,
-        "model":    config.TYPECAST_MODEL,
-        "language": "kor",
-        "output": {
-            "audio_format": "mp3",
-            "audio_tempo":  float(config.TTS_SPEED),
-        },
-    }
-    res = requests.post(
-        _TYPECAST_URL,
-        headers={
-            "X-API-KEY":    config.TYPECAST_API_KEY,
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=120,
-    )
-    if res.status_code != 200:
-        raise RuntimeError(
-            f"Typecast TTS 실패 ({res.status_code}): {res.text[:300]}"
+    # 설정된 모델로 1차 시도, voice가 v30 미지원이면 v21로 폴백
+    last_error: tuple[int, str] | None = None
+    for model in _model_candidates(config.TYPECAST_MODEL):
+        payload = {
+            "voice_id": voice_id,
+            "text":     text,
+            "model":    model,
+            "language": "kor",
+            "output": {
+                "audio_format": "mp3",
+                "audio_tempo":  float(config.TTS_SPEED),
+            },
+        }
+        res = requests.post(
+            _TYPECAST_URL,
+            headers={
+                "X-API-KEY":    config.TYPECAST_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=120,
         )
-    out_path.write_bytes(res.content)
+        if res.status_code == 200:
+            out_path.write_bytes(res.content)
+            return
+        last_error = (res.status_code, res.text)
+        # VOICE_MODEL_NOT_SUPPORTED 인 경우만 다음 후보로 진행
+        if "VOICE_MODEL_NOT_SUPPORTED" not in res.text:
+            break
+
+    code, body = last_error or (0, "(no response)")
+    raise RuntimeError(f"Typecast TTS 실패 ({code}): {body[:300]}")
+
+
+def _model_candidates(primary: str) -> list[str]:
+    """1차로 설정된 모델, 그 다음 안 들어가면 다른 버전으로 폴백."""
+    fallback = "ssfm-v21" if primary != "ssfm-v21" else "ssfm-v30"
+    return [primary, fallback]
 
 
 def _fake_words_from_text(text: str, duration: float) -> list[dict]:

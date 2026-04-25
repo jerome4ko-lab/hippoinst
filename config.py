@@ -26,7 +26,7 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "zgDzx5jLLCqEp6Fl7Kl7")
 
 TYPECAST_API_KEY  = os.getenv("TYPECAST_API_KEY", "")
 TYPECAST_VOICE_ID = os.getenv("TYPECAST_VOICE_ID", "tc_672c5f5ce59fac2a48faeaee")
-TYPECAST_MODEL    = os.getenv("TYPECAST_MODEL", "ssfm-v30")
+TYPECAST_MODEL    = os.getenv("TYPECAST_MODEL", "ssfm-v21")
 
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "elevenlabs")  # elevenlabs | typecast
 
