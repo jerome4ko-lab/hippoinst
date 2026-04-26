@@ -11,7 +11,7 @@ def generate_chunk_ass(chunks: list[str], words: list[dict], duration: float = 5
     """Render semantic-chunk subtitles aligned to TTS word timings.
     Each chunk is shown as one screen for its mapped duration (no per-word highlight).
     """
-    margin_v = config.VIDEO_HEIGHT - (config.CLIP_Y + config.CLIP_H - 70)
+    margin_v = config.VIDEO_HEIGHT - (config.SUB_Y + config.SUB_H // 2)
     header   = _ass_header(config.SUBTITLE_FONT, config.SUBTITLE_FONT_SIZE, margin_v)
     lines    = [header]
 
@@ -102,7 +102,7 @@ def generate_word_highlight_ass(words: list[dict], duration: float) -> Path:
     Subtitles positioned on the video clip area (not below).
     """
     # Bottom of clip zone (y=480~1440). Put text at y≈1370.
-    margin_v = config.VIDEO_HEIGHT - (config.CLIP_Y + config.CLIP_H - 70)  # ~550
+    margin_v = config.VIDEO_HEIGHT - (config.SUB_Y + config.SUB_H // 2)  # ~550
 
     header = _ass_header(config.SUBTITLE_FONT, config.SUBTITLE_FONT_SIZE, margin_v)
     lines  = [header]

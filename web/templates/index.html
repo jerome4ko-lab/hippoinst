@@ -32,7 +32,7 @@
   <div class="grid">
 
     <!-- ── 뉴스 검색 패널 (좌) ── -->
-    <div>
+    <div class="news-col">
       <div class="card">
         <div class="card-title">🔎 최신 뉴스 검색</div>
 
@@ -75,109 +75,22 @@
         <textarea id="article3" placeholder="기사 내용을 붙여넣으세요..."></textarea>
       </div>
 
-      <!-- 영상 링크 -->
-      <div class="card">
-        <div class="card-title">🎬 참조 영상</div>
-        <label class="field-label">유튜브 링크 1 (선택 — 비우면 스크립트 베이스 영상)</label>
-        <div class="url-row">
-          <input type="url" id="url1" placeholder="https://youtube.com/watch?v=...">
-          <input type="text" id="start1" value="00:00:00" placeholder="시작 시간">
-        </div>
-        <label class="field-label">유튜브 링크 2 (선택)</label>
-        <div class="url-row">
-          <input type="url" id="url2" placeholder="https://youtube.com/watch?v=...">
-          <input type="text" id="start2" value="00:00:00" placeholder="시작 시간">
-        </div>
-        <label class="field-label">클립 길이 (초)</label>
-        <input type="text" id="duration" value="55" style="max-width:80px">
-      </div>
-
-      <!-- BGM + 음성 -->
-      <div class="card">
-        <div class="card-title">🎵 BGM & 음성</div>
-        <div class="field-label">BGM 선택</div>
-        <div class="bgm-options">
-          <div class="bgm-btn">
-            <input type="radio" name="bgm" id="bgm_impact" value="bgm_impact">
-            <label for="bgm_impact">
-              <button class="bgm-play" onclick="previewBgm('bgm_impact',event)">▶</button>
-              Impact
-            </label>
-          </div>
-          <div class="bgm-btn">
-            <input type="radio" name="bgm" id="bgm_light" value="bgm_light" checked>
-            <label for="bgm_light">
-              <button class="bgm-play" onclick="previewBgm('bgm_light',event)">▶</button>
-              Light
-            </label>
-          </div>
-          <div class="bgm-btn">
-            <input type="radio" name="bgm" id="bgm_future" value="bgm_future">
-            <label for="bgm_future">
-              <button class="bgm-play" onclick="previewBgm('bgm_future',event)">▶</button>
-              Future
-            </label>
-          </div>
-        </div>
-        <audio id="bgm-audio" style="display:none"></audio>
-
-        <div class="divider"></div>
-
-        <div class="field-label">TTS 엔진</div>
-        <div class="provider-options">
-          <label class="provider-btn">
-            <input type="radio" name="provider" value="elevenlabs" checked
-                   onchange="onProviderChange()">
-            <span>ElevenLabs</span>
-          </label>
-          <label class="provider-btn">
-            <input type="radio" name="provider" value="typecast"
-                   onchange="onProviderChange()">
-            <span>Typecast</span>
-          </label>
-        </div>
-
-        <label class="field-label">Voice ID
-          <span id="voice-hint" style="font-weight:400;color:var(--muted);font-size:12px"></span>
-        </label>
-        <div class="voice-row">
-          <input type="text" id="voice-id" value="{{ default_voice_id }}" placeholder="Voice ID">
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-preview"
-                  onclick="previewVoice()">🔊 미리듣기</button>
-        </div>
-        <audio id="voice-audio" style="display:none"></audio>
-      </div>
-
     </div>
 
     <!-- ── 스크립트 패널 ── -->
     <div class="card" style="display:flex;flex-direction:column">
       <div class="card-title">📝 스크립트</div>
 
-      <div class="script-meta">
-        <div>
-          <label class="field-label">훅 텍스트 (상단 표시)</label>
-          <input type="text" id="s-hook" placeholder="AI 로봇이 탁구 챔피언을 이겼다?">
-        </div>
-        <div>
-          <label class="field-label">BGM 태그</label>
-          <input type="text" id="s-bgm-tag" placeholder="bgm_future" readonly
-                 style="color:var(--muted);cursor:default">
-        </div>
-      </div>
-
-      <label class="field-label">해시태그</label>
-      <input type="text" id="s-hashtags" placeholder="#AI #로봇 #미래기술 #힙포인사이트">
-
-      <div class="divider"></div>
-
       <div class="narration-grid">
         <!-- 좌: 생성된 원본 (read-only) -->
         <div class="narration-col">
-          <label class="field-label">
-            원본 (생성됨)
-            <span style="font-weight:400;color:var(--muted)">— 참고용</span>
-          </label>
+          <div class="narration-header">
+            <label class="field-label" style="margin:0">
+              원본 (생성됨)
+              <span style="font-weight:400;color:var(--muted)">— 참고용</span>
+            </label>
+            <span style="visibility:hidden" class="btn btn-ghost btn-sm">📋 팩트체크</span>
+          </div>
           <textarea class="narration-editor narration-readonly" id="s-narration-orig" readonly
             placeholder="스크립트 생성 버튼을 누르면 여기에 표시됩니다."></textarea>
         </div>
@@ -194,26 +107,14 @@
           <div class="factcheck-result" id="factcheck-result" hidden></div>
         </div>
       </div>
-      <div class="hint">* 수정 후 '영상 생성'을 누르면 우측(수정) 내용이 반영됩니다.</div>
+      <div class="hint">* 수정한 나레이션은 하단 멀티클립 최종 합성에 반영됩니다.</div>
 
       <div class="btn-row" style="margin-top:auto;padding-top:16px">
-        <button class="btn btn-ghost"      onclick="generateScript()"     id="btn-gen">✨ 스크립트 생성</button>
-        <button class="btn btn-secondary"  onclick="generateScript(true)" id="btn-regen" disabled>🔄 재생성</button>
-        <button class="btn btn-primary"    onclick="renderVideo()"        id="btn-render" disabled>🎬 영상 생성</button>
+        <button class="btn btn-ghost"      onclick="generateScript()"        id="btn-gen">✨ 스크립트 생성</button>
+        <button class="btn btn-secondary"  onclick="generateScript(true)"    id="btn-regen" disabled>🔄 재생성</button>
       </div>
     </div>
 
-  </div>
-
-  <!-- 진행 상황 -->
-  <div class="progress-wrap" id="progress-wrap">
-    <div class="progress-label">
-      <span id="progress-msg">준비 중...</span>
-      <span id="progress-pct">0%</span>
-    </div>
-    <div class="progress-track">
-      <div class="progress-fill" id="progress-fill" style="width:0%"></div>
-    </div>
   </div>
 
   <!-- 완성 영상 -->
@@ -225,6 +126,156 @@
         <div class="output-name" id="output-filename"></div>
         <a id="download-btn" class="btn btn-primary" style="text-decoration:none">⬇ MP4 다운로드</a>
       </div>
+
+      <!-- ── YouTube 발행 ── -->
+      <div class="card yt-card">
+        <div class="card-title">📺 YouTube 발행</div>
+
+        <label class="field-label">제목 <span class="hint-inline" id="yt-title-count">0/100</span></label>
+        <input type="text" id="yt-title" maxlength="100" placeholder="훅 텍스트가 자동 입력됩니다">
+
+        <label class="field-label">설명</label>
+        <textarea id="yt-description" rows="4" placeholder="나레이션이 자동 입력됩니다"></textarea>
+
+        <label class="field-label">태그 (쉼표 구분)</label>
+        <input type="text" id="yt-tags" placeholder="쉼표로 구분해 필요할 때만 입력">
+
+        <div class="yt-row">
+          <div>
+            <label class="field-label">카테고리</label>
+            <select id="yt-category">
+              <option value="28" selected>과학·기술</option>
+              <option value="27">교육</option>
+              <option value="24">엔터테인먼트</option>
+              <option value="25">뉴스·정치</option>
+              <option value="22">인물·블로그</option>
+              <option value="26">노하우·스타일</option>
+              <option value="20">게임</option>
+              <option value="10">음악</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label" style="display:flex;align-items:center;gap:6px;margin-top:24px">
+              <input type="checkbox" id="yt-kids"> 아동용 콘텐츠
+            </label>
+          </div>
+        </div>
+
+        <div class="field-label">공개 설정</div>
+        <div class="provider-options">
+          <label class="provider-btn">
+            <input type="radio" name="yt-privacy" value="private" checked>
+            <span>🔒 비공개</span>
+          </label>
+          <label class="provider-btn">
+            <input type="radio" name="yt-privacy" value="unlisted">
+            <span>🔗 일부 공개</span>
+          </label>
+          <label class="provider-btn">
+            <input type="radio" name="yt-privacy" value="public">
+            <span>🌐 공개</span>
+          </label>
+        </div>
+
+        <button class="btn btn-primary btn-block" id="btn-yt-upload" onclick="uploadToYoutube()">
+          🚀 YouTube에 업로드
+        </button>
+
+        <div class="yt-status" id="yt-status" hidden></div>
+        <div class="hint" style="margin-top:6px">
+          * 인증이 안 돼있으면 <code>tools/youtube_authorize.py</code> 한 번 실행해주세요.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── 멀티클립 중심 최종 렌더 ── -->
+<div class="multiclip-section card">
+  <div class="card-title">🎞️ 최종 영상 설정 + 멀티클립 타임라인</div>
+
+  <div class="final-settings">
+    <div class="settings-card settings-copy">
+      <label class="field-label">훅 텍스트 (`|`로 흰색·노란색 분리)</label>
+      <input type="text" id="mc-hook" placeholder="윤하 〈우산〉|파트 뺏어 부른 자의 최후">
+
+      <label class="field-label">알약 부제 (선택)</label>
+      <input type="text" id="mc-pill" placeholder="예: #로봇 시연 / 단독 / EXCLUSIVE">
+
+      <button class="btn btn-ghost btn-sm" type="button" onclick="openTemplatePreview()" id="btn-tpl">
+        🖼️ 템플릿 미리보기
+      </button>
+    </div>
+
+    <div class="settings-card">
+      <div class="field-label">BGM 선택</div>
+      <div class="bgm-options">
+        <div class="bgm-btn">
+          <button type="button" class="bgm-play" onclick="previewBgm('bgm_impact',event)">▶</button>
+          <input type="radio" name="bgm" id="bgm_impact" value="bgm_impact">
+          <label for="bgm_impact">Impact</label>
+        </div>
+        <div class="bgm-btn">
+          <button type="button" class="bgm-play" onclick="previewBgm('bgm_light',event)">▶</button>
+          <input type="radio" name="bgm" id="bgm_light" value="bgm_light" checked>
+          <label for="bgm_light">Light</label>
+        </div>
+        <div class="bgm-btn">
+          <button type="button" class="bgm-play" onclick="previewBgm('bgm_future',event)">▶</button>
+          <input type="radio" name="bgm" id="bgm_future" value="bgm_future">
+          <label for="bgm_future">Future</label>
+        </div>
+      </div>
+      <audio id="bgm-audio" style="display:none"></audio>
+    </div>
+
+    <div class="settings-card">
+      <div class="field-label">TTS 엔진</div>
+      <div class="provider-options">
+        <label class="provider-btn">
+          <input type="radio" name="provider" value="elevenlabs"
+                 onchange="onProviderChange()">
+          <span>ElevenLabs</span>
+        </label>
+        <label class="provider-btn">
+          <input type="radio" name="provider" value="typecast" checked
+                 onchange="onProviderChange()">
+          <span>Typecast</span>
+        </label>
+      </div>
+
+      <label class="field-label">Voice ID
+        <span id="voice-hint" style="font-weight:400;color:var(--muted);font-size:12px"></span>
+      </label>
+      <div class="voice-row">
+        <input type="text" id="voice-id" value="{{ default_voice_id }}" placeholder="Voice ID">
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-preview"
+                onclick="previewVoice()">🔊 미리듣기</button>
+      </div>
+      <audio id="voice-audio" style="display:none"></audio>
+    </div>
+  </div>
+
+  <div class="timeline-wrap">
+    <div class="timeline" id="mc-timeline"></div>
+  </div>
+
+  <div class="multiclip-bottom">
+    <button class="btn btn-ghost btn-sm" type="button" onclick="addClipCard()" id="mc-add">+ 컷 추가</button>
+    <div class="mc-spacer"></div>
+    <span class="mc-total" id="mc-total">총 0초</span>
+    <button class="btn btn-primary" type="button" onclick="renderMulti()" id="mc-render">🚀 최종 합성</button>
+  </div>
+
+  <!-- 멀티클립 진행률 + 결과 -->
+  <div class="progress-wrap" id="mc-progress" style="margin-top:14px">
+    <div class="progress-label">
+      <span id="mc-progress-msg">준비 중...</span>
+      <span id="mc-progress-pct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="mc-progress-fill" style="width:0%"></div>
     </div>
   </div>
 
@@ -265,7 +316,7 @@ const VOICE_HINTS = {
 const _userVoice = { elevenlabs: null, typecast: null };
 
 function currentProvider() {
-  return document.querySelector('input[name="provider"]:checked')?.value || 'elevenlabs';
+  return document.querySelector('input[name="provider"]:checked')?.value || 'typecast';
 }
 
 function onProviderChange() {
@@ -315,17 +366,35 @@ async function previewVoice() {
 
 // 초기 hint 세팅
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('voice-hint').textContent = VOICE_HINTS.elevenlabs;
+  document.getElementById('voice-hint').textContent = VOICE_HINTS[currentProvider()] || '';
 });
 
 // ── BGM preview ───────────────────────────────────────────
 function previewBgm(name, e) {
   e.preventDefault(); e.stopPropagation();
   const audio = document.getElementById('bgm-audio');
-  if (audio.dataset.name === name && !audio.paused) { audio.pause(); return; }
-  audio.src = `/api/bgm/${name}`;
+  console.log('[bgm] click', name, 'audio el:', audio, 'current src:', audio.src);
+  if (!audio) { toast('audio element 없음', 'error'); return; }
+  // 같은 트랙 다시 누르면 토글 정지
+  if (audio.dataset.name === name && !audio.paused) {
+    console.log('[bgm] pause');
+    audio.pause();
+    return;
+  }
+  audio.pause();
+  audio.src = `/api/bgm/${name}?t=${Date.now()}`;
   audio.dataset.name = name;
-  audio.play();
+  audio.volume = 0.6;
+  audio.muted = false;
+  audio.onerror = () => toast(`BGM 로드 실패 (audio onerror)`, 'error');
+  audio.oncanplay = () => console.log('[bgm] canplay', name);
+  audio.onplaying = () => console.log('[bgm] playing', name);
+  console.log('[bgm] play() →', audio.src);
+  const p = audio.play();
+  if (p && typeof p.then === 'function') {
+    p.then(() => console.log('[bgm] play resolved'))
+     .catch(err => toast(`BGM 재생 실패: ${err.name} - ${err.message}`, 'error'));
+  }
 }
 
 // ── News search (frontend stub — 백엔드 연결 전 샘플 데이터) ───────────
@@ -488,16 +557,13 @@ async function generateScript(regen = false) {
     if (data.error) { toast(data.error, 'error'); return; }
     fillScript(data.script);
     document.getElementById('btn-regen').disabled  = false;
-    document.getElementById('btn-render').disabled = false;
     toast('스크립트 생성 완료!', 'success');
   } catch(e) { toast('오류: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = '✨ 스크립트 생성'; }
 }
 
 function fillScript(s) {
-  document.getElementById('s-hook').value      = s.hook     || '';
-  document.getElementById('s-hashtags').value  = s.hashtags || '';
-  document.getElementById('s-bgm-tag').value   = s.bgm_tag  || '';
+  document.getElementById('mc-hook').value = s.hook || '';
   const text = (s.narration || []).join('\n');
   document.getElementById('s-narration-orig').value = text;
   document.getElementById('s-narration').value      = text;
@@ -510,9 +576,7 @@ function fillScript(s) {
 
 function collectScript() {
   return {
-    hook:      document.getElementById('s-hook').value,
-    hashtags:  document.getElementById('s-hashtags').value,
-    bgm_tag:   document.getElementById('s-bgm-tag').value,
+    hook:      document.getElementById('mc-hook').value,
     narration: document.getElementById('s-narration').value
                  .split('\n').map(l => l.trim()).filter(Boolean),
   };
@@ -577,70 +641,8 @@ function escapeHtml(s) {
   }[c]));
 }
 
-// ── Render video ──────────────────────────────────────────
-async function renderVideo() {
-  const url1 = document.getElementById('url1').value.trim();
-  // url1 비어도 OK — 서버가 스크립트 베이스 모드로 렌더
-  const script = collectScript();
-  if (!script.narration.length) { toast('나레이션을 입력해주세요', 'error'); return; }
-
-  document.getElementById('btn-render').disabled = true;
-  showProgress(true); hideOutput();
-
-  try {
-    const res = await fetch('/api/render', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        articles: ['article1','article2','article3'].map(id => document.getElementById(id).value),
-        urls:        [url1, document.getElementById('url2').value.trim()],
-        start_times: [document.getElementById('start1').value || '00:00:00',
-                      document.getElementById('start2').value || '00:00:00'],
-        duration:  parseInt(document.getElementById('duration').value) || 55,
-        bgm:       document.querySelector('input[name="bgm"]:checked')?.value || 'bgm_light',
-        provider:  currentProvider(),
-        voice_id:  document.getElementById('voice-id').value.trim(),
-        script,
-      }),
-    });
-    const { job_id } = await res.json();
-    listenProgress(job_id);
-  } catch(e) {
-    toast('오류: ' + e.message, 'error');
-    document.getElementById('btn-render').disabled = false;
-    showProgress(false);
-  }
-}
-
-// ── SSE progress ──────────────────────────────────────────
-function listenProgress(jobId) {
-  const es = new EventSource(`/api/progress/${jobId}`);
-  es.onmessage = e => {
-    const job = JSON.parse(e.data);
-    updateProgress(job.progress, job.message);
-    if (job.status === 'done') {
-      es.close();
-      showOutput(job.output);
-      document.getElementById('btn-render').disabled = false;
-      toast('영상 생성 완료!', 'success');
-    } else if (job.status === 'error') {
-      es.close();
-      showProgress(false);
-      document.getElementById('btn-render').disabled = false;
-      toast('오류: ' + job.message, 'error');
-    }
-  };
-  es.onerror = () => es.close();
-}
-
 // ── UI helpers ────────────────────────────────────────────
-function showProgress(v) { document.getElementById('progress-wrap').classList.toggle('show', v); }
 function hideOutput()    { document.getElementById('output-wrap').classList.remove('show'); }
-
-function updateProgress(pct, msg) {
-  document.getElementById('progress-fill').style.width = pct + '%';
-  document.getElementById('progress-msg').textContent  = msg;
-  document.getElementById('progress-pct').textContent  = pct + '%';
-}
 
 function showOutput(filename) {
   const v = document.getElementById('output-video');
@@ -652,7 +654,102 @@ function showOutput(filename) {
   const wrap = document.getElementById('output-wrap');
   wrap.classList.add('show');
   wrap.scrollIntoView({ behavior: 'smooth' });
+
+  // YouTube 폼 자동 채우기 — 비어있을 때만
+  const ytTitle = document.getElementById('yt-title');
+  const ytDesc  = document.getElementById('yt-description');
+  const ytTags  = document.getElementById('yt-tags');
+  const hook    = (document.getElementById('mc-hook').value || '힙포인사이트 쇼츠').trim();
+  const narr    = (document.getElementById('s-narration').value || '').trim();
+  if (!ytTitle.value) ytTitle.value = hook.slice(0, 100);
+  if (!ytDesc.value)  ytDesc.value  = narr;
+  if (!ytTags.value)  ytTags.value  = '';
+  updateYtTitleCount();
 }
+
+function updateYtTitleCount() {
+  const v = document.getElementById('yt-title').value;
+  const el = document.getElementById('yt-title-count');
+  if (el) el.textContent = `${v.length}/100`;
+}
+
+// ── YouTube 업로드 ────────────────────────────────────────
+async function uploadToYoutube() {
+  const filename = document.getElementById('output-filename').textContent.trim();
+  if (!filename) { toast('완성 영상이 없어요', 'error'); return; }
+
+  const title = document.getElementById('yt-title').value.trim();
+  if (!title) { toast('제목을 입력해주세요', 'error'); return; }
+
+  const body = {
+    filename,
+    title,
+    description:    document.getElementById('yt-description').value,
+    tags:           document.getElementById('yt-tags').value.split(',').map(s => s.trim()).filter(Boolean),
+    category_id:    document.getElementById('yt-category').value,
+    privacy_status: document.querySelector('input[name="yt-privacy"]:checked')?.value || 'private',
+    made_for_kids:  document.getElementById('yt-kids').checked,
+  };
+
+  const btn    = document.getElementById('btn-yt-upload');
+  const status = document.getElementById('yt-status');
+  btn.disabled = true; btn.textContent = '⏳ 업로드 시작...';
+  status.hidden = false;
+  status.className = 'yt-status running';
+  status.innerHTML = '🚀 YouTube로 전송하고 있어요...';
+
+  try {
+    const res = await fetch('/api/youtube-upload', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.error) {
+      status.className = 'yt-status error';
+      status.innerHTML = '❌ ' + escapeHtml(data.error);
+      toast('업로드 실패: ' + data.error, 'error');
+      btn.disabled = false; btn.textContent = '🚀 YouTube에 업로드';
+      return;
+    }
+    listenYoutubeProgress(data.job_id, btn, status);
+  } catch(e) {
+    status.className = 'yt-status error';
+    status.innerHTML = '❌ ' + escapeHtml(e.message);
+    toast('오류: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = '🚀 YouTube에 업로드';
+  }
+}
+
+function listenYoutubeProgress(jobId, btn, status) {
+  const es = new EventSource(`/api/progress/${jobId}`);
+  es.onmessage = e => {
+    const job = JSON.parse(e.data);
+    if (job.status === 'running') {
+      status.className = 'yt-status running';
+      status.innerHTML = `🚀 ${escapeHtml(job.message || '업로드 중...')}`;
+      btn.textContent = `⏳ ${job.progress || 0}%`;
+    } else if (job.status === 'done') {
+      es.close();
+      const url = job.video_url || '#';
+      status.className = 'yt-status ok';
+      status.innerHTML = `✅ 업로드 완료 — <a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>`;
+      btn.disabled = false; btn.textContent = '🚀 YouTube에 업로드';
+      toast('YouTube 업로드 완료!', 'success');
+    } else if (job.status === 'error') {
+      es.close();
+      status.className = 'yt-status error';
+      status.innerHTML = '❌ ' + escapeHtml(job.message || '알 수 없는 오류');
+      btn.disabled = false; btn.textContent = '🚀 YouTube에 업로드';
+      toast('업로드 실패: ' + (job.message || ''), 'error');
+    }
+  };
+  es.onerror = () => es.close();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const t = document.getElementById('yt-title');
+  if (t) t.addEventListener('input', updateYtTitleCount);
+});
 
 let _toastTimer;
 function toast(msg, type = '') {
@@ -661,6 +758,190 @@ function toast(msg, type = '') {
   el.className = 'toast show' + (type ? ' ' + type : '');
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => { el.className = 'toast'; }, 3500);
+}
+
+// ── Multi-clip timeline ───────────────────────────────────
+const MC_TRANSITIONS = ['fade','wipeleft','wiperight','dissolve','slideleft','zoomin'];
+const MC_TRANSITION_LABELS = {
+  fade: '페이드', wipeleft: '왼쪽 와이프', wiperight: '오른쪽 와이프',
+  dissolve: '디졸브', slideleft: '슬라이드', zoomin: '줌인',
+};
+const MC_MIN = 2, MC_MAX = 5;
+let mcClips = [
+  {url:'', start:'', end:'', preview:null},
+  {url:'', start:'', end:'', preview:null},
+];
+
+function mcParseSec(s) {
+  s = (s||'').trim();
+  if (!s) return 0;
+  if (s.includes(':')) {
+    const p = s.split(':').map(Number);
+    if (p.length === 2) return p[0]*60 + p[1];
+    if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+  }
+  const n = parseFloat(s); return isNaN(n) ? 0 : n;
+}
+
+function mcRender() {
+  const tl = document.getElementById('mc-timeline');
+  const trans = (mcClips._transitions || []);
+  let html = '';
+  mcClips.forEach((c, i) => {
+    const dur = Math.max(0, mcParseSec(c.end) - mcParseSec(c.start));
+    const previewHtml = c.preview ? `
+      <video class="clip-preview" src="${c.preview.video_url}" muted loop autoplay playsinline></video>
+    ` : `<div class="clip-preview placeholder">미리보기 없음</div>`;
+    html += `
+      <div class="clip-card" data-idx="${i}">
+        <div class="clip-card-head">
+          <span class="clip-num">컷 ${i+1}</span>
+          ${mcClips.length > MC_MIN ? `<button class="clip-del" onclick="mcDeleteClip(${i})">✕</button>` : ''}
+        </div>
+        ${previewHtml}
+        <input type="url" placeholder="유튜브 URL" value="${c.url||''}" oninput="mcSet(${i},'url',this.value)">
+        <div class="clip-times">
+          <input type="text" placeholder="00:30" value="${c.start||''}" oninput="mcSet(${i},'start',this.value)">
+          <span class="dash">~</span>
+          <input type="text" placeholder="00:38" value="${c.end||''}" oninput="mcSet(${i},'end',this.value)">
+        </div>
+        <div class="clip-dur">길이: <b>${dur.toFixed(1)}s</b></div>
+        <button class="btn btn-ghost btn-sm" onclick="mcPreview(${i})">🎬 미리보기</button>
+      </div>
+    `;
+    if (i < mcClips.length - 1) {
+      const t = trans[i] || 'fade';
+      html += `
+        <div class="transition-slot">
+          <select class="transition-select" onchange="mcSetTransition(${i},this.value)">
+            ${MC_TRANSITIONS.map(opt =>
+              `<option value="${opt}" ${opt===t?'selected':''}>${MC_TRANSITION_LABELS[opt]}</option>`
+            ).join('')}
+          </select>
+        </div>
+      `;
+    }
+  });
+  tl.innerHTML = html;
+  mcUpdateTotal();
+  document.getElementById('mc-add').disabled = mcClips.length >= MC_MAX;
+}
+
+function mcSet(i, key, val)        { mcClips[i][key] = val; if (key !== 'url') mcUpdateTotal(); }
+function mcSetTransition(i, val)   { (mcClips._transitions ||= [])[i] = val; }
+function mcDeleteClip(i)           { if (mcClips.length<=MC_MIN) return; mcClips.splice(i,1); (mcClips._transitions||=[]).splice(i,1); mcRender(); }
+function addClipCard()             { if (mcClips.length>=MC_MAX) return; mcClips.push({url:'',start:'',end:'',preview:null}); mcRender(); }
+
+function mcUpdateTotal() {
+  let total = 0;
+  mcClips.forEach(c => total += Math.max(0, mcParseSec(c.end) - mcParseSec(c.start)));
+  // 트랜지션 0.4s씩 겹침
+  total -= 0.4 * Math.max(0, mcClips.length - 1);
+  total = Math.max(0, total);
+  const el = document.getElementById('mc-total');
+  el.textContent = `총 ${total.toFixed(1)}초`;
+  el.className = 'mc-total';
+  if (total < 52) el.classList.add('warn');
+  else if (total <= 58) el.classList.add('ok');
+  else el.classList.add('over');
+}
+
+async function mcPreview(i) {
+  const c = mcClips[i];
+  if (!c.url || !c.start || !c.end) { toast('URL, 시작, 종료를 모두 입력', 'error'); return; }
+  const card = document.querySelector(`.clip-card[data-idx="${i}"]`);
+  card.classList.add('loading');
+  try {
+    const res = await fetch('/api/preview-clip', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url:c.url, start:c.start, end:c.end}),
+    });
+    const j = await res.json();
+    if (j.error) { toast(j.error, 'error'); return; }
+    c.preview = j;
+    mcRender();
+    toast(`컷 ${i+1} 미리보기 OK (${j.duration}s)`, 'success');
+  } catch(e) { toast('미리보기 실패: '+e.message, 'error'); }
+  finally { card.classList.remove('loading'); }
+}
+
+async function renderMulti() {
+  const script = collectScript();
+  if (!script.narration.length) { toast('나레이션을 입력해주세요', 'error'); return; }
+  if (!document.getElementById('mc-hook').value.trim()) { toast('훅 텍스트를 입력해주세요', 'error'); return; }
+
+  // 검증
+  for (let i=0;i<mcClips.length;i++) {
+    const c = mcClips[i];
+    if (!c.url || !c.start || !c.end) { toast(`컷 ${i+1} 입력 미완료`, 'error'); return; }
+  }
+  const transitions = [];
+  for (let i=0;i<mcClips.length-1;i++) {
+    transitions.push((mcClips._transitions||[])[i] || 'fade');
+  }
+  const body = {
+    clips: mcClips.map(c => ({url:c.url, start:c.start, end:c.end})),
+    transitions,
+    bgm: document.querySelector('input[name="bgm"]:checked')?.value || 'bgm_light',
+    pill: document.getElementById('mc-pill').value.trim(),
+    hook: document.getElementById('mc-hook').value.trim(),
+    provider: currentProvider(),
+    voice_id: document.getElementById('voice-id').value.trim(),
+    script,
+  };
+  document.getElementById('mc-render').disabled = true;
+  document.getElementById('mc-progress').classList.add('show');
+  hideOutput();
+  try {
+    const res = await fetch('/api/render-multi', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const j = await res.json();
+    if (j.error) { toast(j.error, 'error'); document.getElementById('mc-render').disabled=false; return; }
+    mcListenProgress(j.job_id);
+  } catch(e) {
+    toast('합성 요청 실패: '+e.message, 'error');
+    document.getElementById('mc-render').disabled=false;
+  }
+}
+
+function mcListenProgress(jobId) {
+  const es = new EventSource(`/api/progress/${jobId}`);
+  es.onmessage = e => {
+    const job = JSON.parse(e.data);
+    document.getElementById('mc-progress-msg').textContent = job.message || '...';
+    document.getElementById('mc-progress-pct').textContent = (job.progress||0)+'%';
+    document.getElementById('mc-progress-fill').style.width = (job.progress||0)+'%';
+    if (job.status === 'done') {
+      es.close();
+      document.getElementById('mc-render').disabled = false;
+      document.getElementById('mc-progress').classList.remove('show');
+      showOutput(job.output);
+      toast('최종 영상 합성 완료!', 'success');
+    } else if (job.status === 'error') {
+      es.close();
+      document.getElementById('mc-render').disabled = false;
+      document.getElementById('mc-progress').classList.remove('show');
+      toast('오류: ' + job.message, 'error');
+    }
+  };
+  es.onerror = () => es.close();
+}
+
+// 초기 렌더
+document.addEventListener('DOMContentLoaded', mcRender);
+
+// ── Template preview (mobile-sized popup) ─────────────────
+function openTemplatePreview() {
+  const pill = document.getElementById('mc-pill').value.trim();
+  const hook = document.getElementById('mc-hook').value.trim();
+  const params = new URLSearchParams({ pill, hook, t: Date.now() });
+  // iPhone 14 표준(390×844)에 살짝 여유. 같은 이름 → 재오픈 시 기존 창 갱신.
+  const features = 'width=400,height=820,resizable=yes,scrollbars=no,menubar=no,toolbar=no,location=no,status=no';
+  const win = window.open('/template-preview-window?' + params, 'hippoTplPreview', features);
+  if (win) win.focus();
+  else toast('팝업이 차단됐어요. 브라우저 팝업 허용해주세요', 'error');
 }
 </script>
 </body>

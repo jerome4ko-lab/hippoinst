@@ -37,7 +37,7 @@ class FactCheckRequest(BaseModel):
 
 
 class TTSPreviewRequest(BaseModel):
-    provider: str = "elevenlabs"     # elevenlabs | typecast
+    provider: str = "typecast"       # elevenlabs | typecast
     voice_id: Optional[str] = None
     text:     str = "안녕하세요, 힙포인사이트입니다. 오늘도 흥미로운 AI 소식을 들고 왔어요."
 
@@ -47,15 +47,43 @@ class NewsSearchRequest(BaseModel):
     limit: int = 7                # 5~8 권장
 
 
+class YouTubeUploadRequest(BaseModel):
+    filename:       str
+    title:          str
+    description:    str = ""
+    tags:           list[str] = []
+    category_id:    str = "28"          # Science & Technology
+    privacy_status: str = "private"     # private | unlisted | public
+    made_for_kids:  bool = False
+
+
+class PreviewClipRequest(BaseModel):
+    url:   str
+    start: str   # mm:ss / hh:mm:ss / 초
+    end:   str
+
+
+class MultiRenderRequest(BaseModel):
+    clips:       list[dict]      # [{url, start, end}]  (2~5)
+    transitions: list[str]       # 길이 = clips-1
+    bgm:         str = "bgm_light"
+    pill:        str = ""
+    hook:        str = ""
+    provider:    str = "typecast"       # elevenlabs | typecast
+    voice_id:    str = config.TYPECAST_VOICE_ID
+    script:      Optional[dict] = None   # final edited script from the UI
+
+
 class RenderRequest(BaseModel):
     articles: list[str] = []
     urls: list[str] = []
     start_times: list[str] = ["00:00:00", "00:00:00"]
     duration: int = 55
     bgm: str = "bgm_light"
-    provider: str = "elevenlabs"     # elevenlabs | typecast
-    voice_id: str = config.ELEVENLABS_VOICE_ID
-    script: Optional[dict] = None   # pre-generated or manually edited
+    provider: str = "typecast"       # elevenlabs | typecast
+    voice_id: str = config.TYPECAST_VOICE_ID
+    script: Optional[dict] = None    # pre-generated or manually edited
+    pill: str = ""                   # 노란 알약 부제 (선택)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -66,9 +94,9 @@ async def index(request: Request):
         request=request,
         name="index.html",
         context={
-            "default_voice_id":          config.ELEVENLABS_VOICE_ID,
+            "default_voice_id":          config.TYPECAST_VOICE_ID,
             "default_typecast_voice_id": config.TYPECAST_VOICE_ID,
-            "bgm_options":               list(config.BGM_MAP.keys()),
+            "bgm_options":               [k for k, p in config.BGM_MAP.items() if Path(str(p)).exists()],
         },
     )
 
@@ -112,6 +140,20 @@ async def news_search_api(req: NewsSearchRequest):
         return {"items": items}
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.post("/api/youtube-upload")
+async def youtube_upload_api(req: YouTubeUploadRequest):
+    file_path = config.OUTPUT_DIR / req.filename
+    if not file_path.exists():
+        return {"error": f"파일을 찾을 수 없어요: {req.filename}"}
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {
+        "status": "queued", "progress": 0,
+        "message": "YouTube 업로드 준비 중...", "output": None, "error": None,
+    }
+    threading.Thread(target=_run_youtube_upload, args=(job_id, file_path, req), daemon=True).start()
+    return {"job_id": job_id}
 
 
 @app.post("/api/tts-preview")
@@ -161,6 +203,230 @@ async def download(filename: str):
     if not path.exists():
         return {"error": "File not found"}
     return FileResponse(str(path), media_type="video/mp4", filename=filename)
+
+
+@app.get("/api/_debug/character")
+async def _debug_character():
+    """디버그 — 서버 컨텍스트의 character 모듈 상태 점검."""
+    import sys
+    info: dict = {"python": sys.executable, "version": sys.version.split()[0]}
+    try:
+        from pipeline import character
+        info["module_path"]   = character.__file__
+        info["LIBROSA_OK"]    = character._LIBROSA_OK
+        info["IMAGEIO_OK"]    = character._IMAGEIO_OK
+        info["NUMPY_OK"]      = character._NUMPY_OK
+        info["is_available"]  = character.is_available()
+        info["CHARACTER_DIR"] = str(config.CHARACTER_DIR)
+        info["dir_exists"]    = config.CHARACTER_DIR.exists()
+        from pipeline.character import MOUTH_FILES
+        info["mouth_files"]   = {n: (config.CHARACTER_DIR / fn).exists() for n, fn in MOUTH_FILES.items()}
+    except Exception as e:
+        info["error"] = repr(e)
+    return info
+
+
+@app.post("/api/preview-clip")
+async def preview_clip_api(req: PreviewClipRequest):
+    from pipeline.multiclip import parse_time, prepare_preview
+    try:
+        start = parse_time(req.start)
+        end   = parse_time(req.end)
+        if end <= start:
+            return {"error": "종료 시간이 시작보다 커야 해요"}
+        if end - start > 60:
+            return {"error": "한 컷 최대 60초까지"}
+        info = prepare_preview(req.url, start, end)
+        return {
+            "clip_id":   info["clip_id"],
+            "duration":  info["duration"],
+            "video_url": f"/api/preview-asset/{info['clip_id']}/video",
+            "thumb_url": f"/api/preview-asset/{info['clip_id']}/thumb",
+        }
+    except Exception as e:
+        return {"error": f"미리보기 실패: {e}"}
+
+
+@app.get("/api/preview-asset/{clip_id}/{kind}")
+async def preview_asset(clip_id: str, kind: str):
+    from pipeline.multiclip import PREVIEW_DIR
+    safe = "".join(c for c in clip_id if c.isalnum())[:20]
+    if kind == "video":
+        path = PREVIEW_DIR / f"{safe}.mp4"
+        media = "video/mp4"
+    elif kind == "thumb":
+        path = PREVIEW_DIR / f"{safe}.jpg"
+        media = "image/jpeg"
+    else:
+        return {"error": "kind는 video|thumb"}
+    if not path.exists():
+        return {"error": "asset 없음"}
+    return FileResponse(str(path), media_type=media,
+                        headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.post("/api/render-multi")
+async def render_multi_api(req: MultiRenderRequest):
+    if not (2 <= len(req.clips) <= 5):
+        return {"error": "클립은 2~5개"}
+    if len(req.transitions) != len(req.clips) - 1:
+        return {"error": f"transitions 개수가 {len(req.clips)-1}개여야 해요"}
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {
+        "status": "queued", "progress": 0,
+        "message": "준비 중...", "output": None, "error": None,
+    }
+    threading.Thread(target=_run_multi_pipeline, args=(job_id, req), daemon=True).start()
+    return {"job_id": job_id}
+
+
+def _run_multi_pipeline(job_id: str, req: MultiRenderRequest) -> None:
+    def upd(progress: int, message: str):
+        jobs[job_id].update({"status": "running", "progress": progress, "message": message})
+
+    try:
+        import math
+        from pipeline.multiclip import (
+            parse_time, prepare_preview, multiclip_duration, compose_montage,
+        )
+        from pipeline.tts import generate_tts
+        from pipeline.subtitle import generate_chunk_ass, chunk_narration
+        from pipeline.editor import create_background_frame, compose_video
+
+        config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # 1) 스크립트 확인 + TTS 생성
+        upd(8, "스크립트 확인 중...")
+        script = dict(req.script or {})
+        narration = script.get("narration") or []
+        if isinstance(narration, str):
+            narration = [line.strip() for line in narration.splitlines() if line.strip()]
+        else:
+            narration = [str(line).strip() for line in narration if str(line).strip()]
+        if not narration:
+            raise ValueError("나레이션을 먼저 생성하거나 입력해주세요")
+
+        hook_text = (req.hook or script.get("hook") or "힙포인사이트").strip()
+        script["hook"] = hook_text
+        script["narration"] = narration
+
+        upd(18, f"음성(TTS) 생성 중... [{req.provider}]")
+        tts_path, tts_duration, words = generate_tts(
+            narration,
+            provider=req.provider,
+            voice_id=req.voice_id,
+        )
+        video_duration = max(1, int(math.ceil(tts_duration)) + 2)
+
+        # 2) 클립 N개 다운로드 (캐시 활용)
+        downloaded: list[dict] = []
+        for i, c in enumerate(req.clips, 1):
+            upd(int(30 + 25 * (i - 1) / len(req.clips)),
+                f"클립 {i}/{len(req.clips)} 다운로드 중...")
+            start = parse_time(c.get("start", "0"))
+            end   = parse_time(c.get("end", "0"))
+            if end <= start:
+                raise ValueError(f"클립 {i}: 종료 시간이 시작보다 커야 해요")
+            info = prepare_preview(c["url"], start, end)
+            downloaded.append({"path": info["video"], "duration": info["duration"]})
+
+        clip_duration = multiclip_duration(downloaded)
+        if clip_duration + 0.15 < video_duration:
+            raise ValueError(
+                f"클립 총 길이 {clip_duration:.1f}초가 TTS 기준 길이 {video_duration:.1f}초보다 짧아요. "
+                "컷 길이를 늘려주세요."
+            )
+
+        # 3) 타이틀 블록 PNG + 무음 멀티클립 몽타주
+        upd(58, "타이틀 블록 생성 중...")
+        bg_path = create_background_frame(
+            hook_text, pill_text=req.pill, clipless=False,
+        )
+
+        upd(64, "멀티클립 몽타주 생성 중...")
+        montage_path = config.TEMP_DIR / f"{job_id}_montage.mp4"
+        compose_montage(
+            clips=downloaded,
+            transitions=req.transitions,
+            output_path=montage_path,
+        )
+
+        # 4) 자막/GIF/BGM 준비
+        upd(74, "자막 생성 중...")
+        raw_subs = script.get("subtitles") or []
+        chunks = [s["text"] if isinstance(s, dict) else str(s) for s in raw_subs]
+        if not chunks:
+            chunks = chunk_narration(narration)
+        ass_path = generate_chunk_ass(chunks, words, tts_duration)
+
+        upd(80, "GIF 페치 중...")
+        gif_records = _fetch_gifs(
+            script.get("gifs") or [], video_duration=video_duration, fallback=False,
+        )
+
+        bgm_path = config.BGM_MAP.get(req.bgm, config.BGM_FALLBACK)
+        if not Path(str(bgm_path)).exists():
+            bgm_path = config.BGM_FALLBACK
+
+        # 5) 최종 합성: 몽타주 + TTS + 자막 + 캐릭터 + BGM
+        upd(88, "최종 영상 합성 중...")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        keyword = re.sub(r'[\\/:*?"<>|]', "", hook_text[:20]).replace(" ", "_") or "multiclip"
+        out_path = config.OUTPUT_DIR / f"{ts}_{keyword}.mp4"
+
+        provider_key = (req.provider or "elevenlabs").lower()
+        voice_gain = config.TTS_VOICE_GAIN.get(provider_key, config.TTS_VOICE_GAIN["elevenlabs"])
+        compose_video(
+            montage_path,
+            bg_path=bg_path,
+            ass_path=ass_path,
+            output_path=out_path,
+            bgm_path=bgm_path,
+            tts_path=tts_path,
+            duration=video_duration,
+            gifs=gif_records,
+            voice_gain=voice_gain,
+        )
+        jobs[job_id].update({
+            "status": "done", "progress": 100,
+            "message": "완료!", "output": out_path.name, "error": None, "script": script,
+        })
+    except Exception as e:
+        jobs[job_id].update({
+            "status": "error", "progress": 100,
+            "message": str(e), "error": str(e),
+        })
+
+
+@app.get("/api/template-preview")
+async def template_preview(pill: str = "", hook: str = ""):
+    from pipeline.editor import create_template_preview
+    hook_text = hook.strip() or "훅 텍스트|강조 한 줄"
+    pill_text = pill.strip()
+    path = create_template_preview(hook_text, pill_text=pill_text)
+    return FileResponse(
+        str(path),
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/template-preview-window", response_class=HTMLResponse)
+async def template_preview_window(pill: str = "", hook: str = "", t: str = ""):
+    """모바일 폰 크기 새 창으로 띄우는 PNG 뷰어 페이지."""
+    from urllib.parse import urlencode
+    qs = urlencode({"pill": pill, "hook": hook, "t": t}, encoding="utf-8")
+    return HTMLResponse(f"""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>📱 템플릿 미리보기</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html, body {{ margin:0; padding:0; height:100%; background:#000; overflow:hidden; }}
+  body {{ display:flex; align-items:center; justify-content:center; }}
+  img  {{ display:block; max-width:100%; max-height:100vh; height:auto; width:auto; }}
+</style>
+</head><body><img src="/api/template-preview?{qs}" alt="템플릿 미리보기"></body></html>""")
 
 
 @app.get("/api/bgm/{name}")
@@ -213,7 +479,11 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         video_duration = min(round(tts_duration) + 2, req.duration)
 
         upd(62, "배경 이미지 생성 중...")
-        bg_path = create_background_frame(script["hook"], script["hashtags"], clipless=(clip_path is None))
+        bg_path = create_background_frame(
+            script["hook"],
+            pill_text=req.pill,
+            clipless=(clip_path is None),
+        )
 
         upd(72, "자막 생성 중...")
         raw_subs = script.get("subtitles") or []
@@ -248,10 +518,42 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         jobs[job_id].update({"status": "error", "progress": 0, "message": str(e)})
 
 
+def _run_youtube_upload(job_id: str, file_path: Path, req: YouTubeUploadRequest) -> None:
+    from pipeline.youtube_publisher import upload_video
+
+    def cb(p: float):
+        jobs[job_id].update({
+            "status":   "running",
+            "progress": int(min(100, max(0, p * 100))),
+            "message":  f"YouTube 전송 중... {int(p*100)}%",
+        })
+
+    try:
+        cb(0.0)
+        result = upload_video(
+            file_path,
+            title=req.title,
+            description=req.description,
+            tags=req.tags,
+            category_id=req.category_id,
+            privacy_status=req.privacy_status,
+            made_for_kids=req.made_for_kids,
+            progress_cb=cb,
+        )
+        jobs[job_id].update({
+            "status":    "done", "progress": 100,
+            "message":   "업로드 완료!",
+            "video_id":  result["video_id"],
+            "video_url": result["url"],
+        })
+    except Exception as e:
+        jobs[job_id].update({"status": "error", "progress": 0, "message": str(e)})
+
+
 _FALLBACK_GIF_KEYWORDS = ["mind blown", "wow", "shocked", "amazing", "no way"]
 
 
-def _fetch_gifs(specs: list, video_duration: float = 55.0) -> list[dict]:
+def _fetch_gifs(specs: list, video_duration: float = 55.0, *, fallback: bool = True) -> list[dict]:
     """script['gifs'] 항목들을 Klipy로 페치. Claude가 빠뜨리거나 모두 실패하면
     안전망으로 기본 키워드 GIF 1개를 영상 1/3 지점에 삽입."""
     from pipeline.gif_fetch import fetch as fetch_gif
@@ -273,7 +575,7 @@ def _fetch_gifs(specs: list, video_duration: float = 55.0) -> list[dict]:
             print(f"[gif] {kw!r} fetch 실패: {exc}", flush=True)
 
     # Fallback — 결과가 비어 있으면 영상 임팩트 보장 위해 기본 GIF 1개
-    if not out:
+    if fallback and not out:
         for kw in _FALLBACK_GIF_KEYWORDS:
             try:
                 path = fetch_gif(kw)

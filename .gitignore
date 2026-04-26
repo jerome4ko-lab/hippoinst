@@ -6,6 +6,16 @@ __pycache__/
 temp/
 output/
 *.mp4
+
+# YouTube OAuth secrets (never commit)
+tools/client_secret.json
+tools/token.json
+
+# Local session handoff/state
+SESSION_HANDOFF.md
+.claude/
+playtest/
+uvicorn.*.log
 .omc/
 web/.omc/
 
