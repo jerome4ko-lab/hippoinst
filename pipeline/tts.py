@@ -1,4 +1,5 @@
 import base64
+import re
 import subprocess
 from pathlib import Path
 
@@ -136,7 +137,7 @@ def _generate_typecast(narration: list[str], voice_id: str | None):
     _typecast_to_mp3(text, vid, tts_path)
 
     duration = _get_duration(tts_path)
-    words    = _fake_words_from_text(text, duration)
+    words    = _fake_words_from_text(text, duration, audio_path=tts_path)
     return tts_path, duration, words
 
 
@@ -184,24 +185,129 @@ def _model_candidates(primary: str) -> list[str]:
     return [primary, fallback]
 
 
-def _fake_words_from_text(text: str, duration: float) -> list[dict]:
-    """word-level alignment이 없을 때, 글자 비율로 시간을 분배해 word timing을 흉내."""
-    tokens: list[str] = []
-    for line in text.split("\n"):
-        for w in line.strip().split():
-            if w:
-                tokens.append(w)
-    if not tokens:
+def _fake_words_from_text(
+    text: str,
+    duration: float,
+    audio_path: Path | None = None,
+) -> list[dict]:
+    """Word-level alignment이 없을 때 추정.
+
+    가능하면 silencedetect로 문장 경계를 잡아 anchor로 쓴다 (Typecast가 문장 사이
+    pause를 길게 두는 특성을 활용해 자막 drift 최소화).
+    문장 내부에서는 글자 수 비율로 word를 분배.
+    """
+    sentences = _split_sentences(text)
+    if not sentences:
         return []
 
-    total_chars = sum(len(w) for w in tokens) or 1
-    t, out = 0.0, []
-    for w in tokens:
-        share = len(w) / total_chars
-        end   = min(t + share * duration, duration)
-        out.append({"word": w, "start": t, "end": end})
-        t = end
+    # 1) 글자 비율로 예상 경계 위치 → 근처 silence에 snap
+    n = len(sentences)
+    char_total = sum(_visible_len(s) for s in sentences) or 1
+    expected: list[float] = []
+    cum = 0
+    for s in sentences[:-1]:
+        cum += _visible_len(s)
+        expected.append(cum / char_total * duration)
+
+    silences = _detect_silences(audio_path) if audio_path else []
+    snapped: list[float] = []
+    used: set[int] = set()
+    if n >= 2 and silences:
+        # 한 silence는 한 경계에만 매핑되도록 used 추적
+        for exp in expected:
+            best_idx = -1
+            best_score = float("inf")
+            for idx, (s, e) in enumerate(silences):
+                if idx in used:
+                    continue
+                mid = (s + e) / 2
+                dist = abs(mid - exp)
+                if dist > 3.0:        # 3초 이상 떨어진 silence는 후보 제외
+                    continue
+                # 길수록 가중치 ↑ (sentence 경계는 보통 더 김)
+                score = dist - (e - s) * 0.6
+                if score < best_score:
+                    best_score = score
+                    best_idx   = idx
+            if best_idx >= 0:
+                s, e = silences[best_idx]
+                snapped.append((s + e) / 2)
+                used.add(best_idx)
+            else:
+                # 매핑 실패 → 예상 위치 그대로 사용 (drift는 있지만 끝까지 안정)
+                snapped.append(exp)
+
+    boundaries: list[float] = [0.0]
+    if len(snapped) == n - 1:
+        boundaries.extend(snapped)
+    else:
+        # silence 매핑 실패 → 글자 비율 fallback
+        boundaries.extend(expected)
+    boundaries.append(duration)
+    # 단조 증가 보장
+    for i in range(1, len(boundaries)):
+        if boundaries[i] < boundaries[i - 1]:
+            boundaries[i] = boundaries[i - 1]
+
+    # 2) 각 문장 내부에서 word를 글자 비율로 분배
+    out: list[dict] = []
+    for i, sent in enumerate(sentences):
+        s_start = boundaries[i]
+        s_end   = boundaries[i + 1]
+        s_dur   = max(0.0, s_end - s_start)
+
+        words = sent.split()
+        if not words:
+            continue
+        sent_chars = sum(len(w) for w in words) or 1
+        t = s_start
+        for w in words:
+            share = len(w) / sent_chars
+            w_end = t + share * s_dur
+            out.append({"word": w, "start": t, "end": w_end})
+            t = w_end
     return out
+
+
+def _split_sentences(text: str) -> list[str]:
+    """종결 부호(.!?)로 문장 단위 분리. 줄바꿈은 단순 공백 취급.
+
+    Typecast는 ``\n``에 대해 pause를 짧게/안 두는 경우가 많아 문장 경계로
+    삼지 않는 편이 silencedetect anchor 매핑과 잘 맞는다.
+    """
+    flat = re.sub(r'\s+', ' ', text).strip()
+    if not flat:
+        return []
+    parts = re.split(r'(?<=[.!?])\s+', flat)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _visible_len(s: str) -> int:
+    return len(re.sub(r'\s+', '', s))
+
+
+def _detect_silences(
+    audio_path: Path | None,
+    noise_db: float = -30,
+    min_dur: float = 0.2,
+) -> list[tuple[float, float]]:
+    """ffmpeg silencedetect → [(silence_start, silence_end), ...]."""
+    if audio_path is None or not Path(audio_path).exists():
+        return []
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-i", str(audio_path),
+             "-af", f"silencedetect=noise={noise_db}dB:d={min_dur}",
+             "-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="ignore",
+            timeout=30,
+        )
+    except Exception:
+        return []
+
+    starts = re.findall(r"silence_start:\s*([\d.]+)", result.stderr)
+    ends   = re.findall(r"silence_end:\s*([\d.]+)", result.stderr)
+    return [(float(s), float(e)) for s, e in zip(starts, ends)]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
