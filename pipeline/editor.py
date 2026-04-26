@@ -424,11 +424,12 @@ def compose_video(
             f"[{cur}]subtitles='{ass_esc}':fontsdir='{_ffmpeg_path(config.ASSETS_DIR)}'[vsubs]"
         )
         cs = int(config.CHARACTER_SIZE)
-        # 클립 우하단(자막 띠 바로 위)에 마스코트처럼 얹는다.
-        char_y = config.CLIP_Y + config.CLIP_H - cs - 10
+        # 클립 우하단 코너에 정확히 정렬 (캐릭터 하단 = 클립 하단).
+        # x는 우측 100px 안쪽 — YouTube 좋아요/싫어요 버튼과 겹치지 않도록.
+        char_y = config.CLIP_Y + config.CLIP_H - cs
         # PNG 시퀀스는 입력 시 이미 rgba. scale 뒤에도 rgba 유지해야 alpha 보존.
         parts.append(f"[{char_idx}:v]scale={cs}:{cs},format=rgba[char]")
-        parts.append(f"[vsubs][char]overlay=W-w-30:{char_y}:shortest=0[vout]")
+        parts.append(f"[vsubs][char]overlay=W-w-100:{char_y}:shortest=0[vout]")
     else:
         parts.append(
             f"[{cur}]subtitles='{ass_esc}':fontsdir='{_ffmpeg_path(config.ASSETS_DIR)}'[vout]"

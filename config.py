@@ -43,7 +43,7 @@ VIDEO_DURATION = 55
 
 # 캐릭터 립싱크 오버레이 (TTS RMS 기반)
 CHARACTER_ENABLED = True
-CHARACTER_SIZE    = 300                     # 정사각형 px
+CHARACTER_SIZE    = 270                     # 정사각형 px
 CHARACTER_DIR     = ASSETS_DIR / "character"
 
 # Layout zones (y offset, height) in pixels
