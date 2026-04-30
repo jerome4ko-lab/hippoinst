@@ -10,7 +10,7 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -31,15 +31,17 @@ class ScriptRequest(BaseModel):
     title: Optional[str] = None
 
 
-class FactCheckRequest(BaseModel):
-    articles: list[str] = []
-    script:   str = ""
-
-
 class TTSPreviewRequest(BaseModel):
     provider: str = "typecast"       # elevenlabs | typecast
     voice_id: Optional[str] = None
     text:     str = "안녕하세요, 힙포인사이트입니다. 오늘도 흥미로운 AI 소식을 들고 왔어요."
+
+
+class TTSDurationRequest(BaseModel):
+    """렌더 전 TTS 총 길이 추정 / 측정용."""
+    narration: list[str] | str = ""
+    provider:  str = "typecast"      # elevenlabs | typecast
+    voice_id:  Optional[str] = None
 
 
 class NewsSearchRequest(BaseModel):
@@ -72,6 +74,9 @@ class MultiRenderRequest(BaseModel):
     provider:    str = "typecast"       # elevenlabs | typecast
     voice_id:    str = config.TYPECAST_VOICE_ID
     script:      Optional[dict] = None   # final edited script from the UI
+    confirmed_tts_id: Optional[str] = None
+    hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT  # 훅 두번째줄 색상 (#RRGGBB)
+    subtitle_color: str = "#FFFFFF"      # 자막 강조 색상 (#RRGGBB)
 
 
 class RenderRequest(BaseModel):
@@ -84,6 +89,8 @@ class RenderRequest(BaseModel):
     voice_id: str = config.TYPECAST_VOICE_ID
     script: Optional[dict] = None    # pre-generated or manually edited
     pill: str = ""                   # 노란 알약 부제 (선택)
+    hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT  # 훅 두번째줄 색상 (#RRGGBB)
+    subtitle_color: str = "#FFFFFF"  # 자막 강조 색상 (#RRGGBB)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -103,31 +110,20 @@ async def index(request: Request):
 
 @app.post("/api/generate-script")
 async def generate_script_api(req: ScriptRequest):
-    from pipeline.script_generator import generate_script_from_articles, generate_script
     try:
+        from pipeline.script_generator import generate_two_variants_from_articles
+
         articles = [a.strip() for a in req.articles if a.strip()]
-        if articles:
-            script = generate_script_from_articles(articles)
-        elif req.title:
-            script = generate_script(req.title)
-        else:
-            return {"error": "기사 또는 제목을 입력해주세요"}
-        return {"script": script}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@app.post("/api/fact-check")
-async def fact_check_api(req: FactCheckRequest):
-    from pipeline.script_generator import fact_check
-    articles = [a.strip() for a in req.articles if a.strip()]
-    if not articles:
-        return {"error": "팩트체크하려면 원본 기사가 필요해요"}
-    if not req.script.strip():
-        return {"error": "검증할 스크립트가 비어있어요"}
-    try:
-        result = fact_check(articles, req.script)
-        return {"result": result}
+        if not articles:
+            return {"error": "기사를 입력해주세요"}
+        result = generate_two_variants_from_articles(articles)
+        return {
+            "scripts":  result["scripts"],
+            "used":     result.get("used") or [],
+            "warnings": result.get("warnings") or [],
+        }
+    except ModuleNotFoundError as e:
+        return {"error": f"서버 의존성이 설치되지 않았어요: {e.name}"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -168,6 +164,124 @@ async def tts_preview_api(req: TTSPreviewRequest):
                             headers={"Cache-Control": "no-cache"})
     except Exception as e:
         return {"error": str(e)}
+
+
+def _normalize_narration_lines(narration) -> list[str]:
+    if isinstance(narration, str):
+        return [ln.strip() for ln in narration.splitlines() if ln.strip()]
+    return [str(ln).strip() for ln in (narration or []) if str(ln).strip()]
+
+
+@app.post("/api/tts-duration/estimate")
+async def tts_duration_estimate_api(req: TTSDurationRequest):
+    """글자수 기반 즉석 추정. 캐시에 측정값 있으면 같이 반환. API 호출 없음."""
+    import math
+    from pipeline.tts import estimate_tts_duration, lookup_cached_tts_duration
+
+    lines     = _normalize_narration_lines(req.narration)
+    estimated = estimate_tts_duration(lines)
+    measured  = lookup_cached_tts_duration(
+        lines, provider=req.provider, voice_id=req.voice_id,
+    )
+    char_count = sum(len(ln) for ln in lines)
+    primary = measured if measured is not None else estimated
+    video_total = max(0, int(math.ceil(primary)) + 2) if primary > 0 else 0
+    return {
+        "estimated":   round(estimated, 2),
+        "measured":    None if measured is None else round(measured, 2),
+        "video_total": video_total,
+        "char_count":  char_count,
+        "cache_hit":   measured is not None,
+    }
+
+
+@app.post("/api/tts-duration/measure")
+async def tts_duration_measure_api(req: TTSDurationRequest):
+    """실 TTS 합성 (또는 캐시 hit) 후 정확한 duration 반환. API 비용 발생 가능."""
+    import math
+    from pipeline.tts import generate_tts, lookup_cached_tts_duration
+
+    lines = _normalize_narration_lines(req.narration)
+    if not lines:
+        return {"error": "나레이션이 비어있어요"}
+
+    cached_before = lookup_cached_tts_duration(
+        lines, provider=req.provider, voice_id=req.voice_id,
+    )
+    try:
+        _, duration, _ = await asyncio.to_thread(
+            generate_tts,
+            lines,
+            provider=req.provider,
+            voice_id=req.voice_id,
+        )
+    except Exception as e:
+        return {"error": str(e)}
+    return {
+        "measured":    round(float(duration), 2),
+        "video_total": max(1, int(math.ceil(duration)) + 2),
+        "cache_hit":   cached_before is not None,
+    }
+
+
+@app.post("/api/tts-confirm")
+async def tts_confirm_api(req: TTSDurationRequest):
+    """실제 전체 TTS를 확정 생성하고 미리듣기 URL을 반환."""
+    import math
+    from pipeline.tts import generate_tts, tts_cache_audio_path, tts_cache_id
+
+    lines = _normalize_narration_lines(req.narration)
+    if not lines:
+        return {"error": "나레이션이 비어있어요"}
+
+    tts_id = tts_cache_id(lines, provider=req.provider, voice_id=req.voice_id)
+    try:
+        cached_before = tts_cache_audio_path(tts_id) is not None
+    except ValueError:
+        cached_before = False
+
+    try:
+        _, duration, _ = await asyncio.to_thread(
+            generate_tts,
+            lines,
+            provider=req.provider,
+            voice_id=req.voice_id,
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+    try:
+        audio_path = tts_cache_audio_path(tts_id)
+    except ValueError as e:
+        return {"error": str(e)}
+    if audio_path is None:
+        return {"error": "TTS는 생성됐지만 캐시 저장에 실패했어요. 다시 시도해주세요"}
+
+    return {
+        "tts_id":      tts_id,
+        "measured":    round(float(duration), 2),
+        "video_total": max(1, int(math.ceil(duration)) + 2),
+        "audio_url":   f"/api/tts-confirm/{tts_id}.mp3",
+        "cache_hit":   cached_before,
+    }
+
+
+@app.get("/api/tts-confirm/{tts_id}.mp3")
+async def tts_confirm_audio(tts_id: str):
+    """확정 TTS 캐시 MP3 반환."""
+    from pipeline.tts import tts_cache_audio_path
+
+    try:
+        audio_path = tts_cache_audio_path(tts_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if audio_path is None:
+        raise HTTPException(status_code=404, detail="TTS 캐시를 찾을 수 없어요")
+    return FileResponse(
+        str(audio_path),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.post("/api/render")
@@ -228,21 +342,28 @@ async def _debug_character():
 
 @app.post("/api/preview-clip")
 async def preview_clip_api(req: PreviewClipRequest):
-    from pipeline.multiclip import parse_time, prepare_preview
+    from pipeline.multiclip import normalize_media_url, parse_time, prepare_preview
     try:
+        url = normalize_media_url(req.url)
         start = parse_time(req.start)
         end   = parse_time(req.end)
         if end <= start:
             return {"error": "종료 시간이 시작보다 커야 해요"}
         if end - start > 60:
             return {"error": "한 컷 최대 60초까지"}
-        info = prepare_preview(req.url, start, end)
+        info = await asyncio.to_thread(prepare_preview, url, start, end)
         return {
             "clip_id":   info["clip_id"],
             "duration":  info["duration"],
             "video_url": f"/api/preview-asset/{info['clip_id']}/video",
-            "thumb_url": f"/api/preview-asset/{info['clip_id']}/thumb",
+            "thumb_url": None if info.get("thumb") is None else f"/api/preview-asset/{info['clip_id']}/thumb",
         }
+    except ValueError as e:
+        return {"error": str(e)}
+    except RuntimeError as e:
+        if "yt-dlp" in str(e):
+            return {"error": "미리보기 실패: 영상을 가져오지 못했어요. URL, 공개 여부, 구간 시간을 확인해주세요."}
+        return {"error": f"미리보기 실패: {e}"}
     except Exception as e:
         return {"error": f"미리보기 실패: {e}"}
 
@@ -267,10 +388,27 @@ async def preview_asset(clip_id: str, kind: str):
 
 @app.post("/api/render-multi")
 async def render_multi_api(req: MultiRenderRequest):
-    if not (2 <= len(req.clips) <= 5):
-        return {"error": "클립은 2~5개"}
+    if not (1 <= len(req.clips) <= 5):
+        return {"error": "클립은 1~5개"}
     if len(req.transitions) != len(req.clips) - 1:
         return {"error": f"transitions 개수가 {len(req.clips)-1}개여야 해요"}
+    from pipeline.multiclip import normalize_media_url, parse_time
+    for i, clip in enumerate(req.clips, 1):
+        if not str(clip.get("url") or "").strip():
+            return {"error": f"컷 {i}: URL을 입력해주세요"}
+        try:
+            clip["url"] = normalize_media_url(clip.get("url"))
+        except ValueError as e:
+            return {"error": f"컷 {i}: {e}"}
+        try:
+            start = parse_time(clip.get("start"))
+            end = parse_time(clip.get("end"))
+        except ValueError as e:
+            return {"error": f"컷 {i}: {e}"}
+        if end <= start:
+            return {"error": f"컷 {i}: 종료 시간이 시작보다 커야 해요"}
+        if end - start > 60:
+            return {"error": f"컷 {i}: 한 컷 최대 60초까지"}
     job_id = str(uuid.uuid4())[:8]
     jobs[job_id] = {
         "status": "queued", "progress": 0,
@@ -289,9 +427,10 @@ def _run_multi_pipeline(job_id: str, req: MultiRenderRequest) -> None:
         from pipeline.multiclip import (
             parse_time, prepare_preview, multiclip_duration, compose_montage,
         )
-        from pipeline.tts import generate_tts
+        from pipeline.tts import generate_tts, get_confirmed_tts
         from pipeline.subtitle import generate_chunk_ass, chunk_narration
         from pipeline.editor import create_background_frame, compose_video
+        from pipeline.script_generator import normalize_script_shape
 
         config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
         config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -299,24 +438,30 @@ def _run_multi_pipeline(job_id: str, req: MultiRenderRequest) -> None:
         # 1) 스크립트 확인 + TTS 생성
         upd(8, "스크립트 확인 중...")
         script = dict(req.script or {})
-        narration = script.get("narration") or []
-        if isinstance(narration, str):
-            narration = [line.strip() for line in narration.splitlines() if line.strip()]
-        else:
-            narration = [str(line).strip() for line in narration if str(line).strip()]
+        if (req.hook or "").strip():
+            script["hook"] = req.hook.strip()
+        script = normalize_script_shape(script)
+        narration = script["narration"]
         if not narration:
             raise ValueError("나레이션을 먼저 생성하거나 입력해주세요")
 
-        hook_text = (req.hook or script.get("hook") or "힙포인사이트").strip()
-        script["hook"] = hook_text
-        script["narration"] = narration
+        hook_text = script["hook"]
 
-        upd(18, f"음성(TTS) 생성 중... [{req.provider}]")
-        tts_path, tts_duration, words = generate_tts(
-            narration,
-            provider=req.provider,
-            voice_id=req.voice_id,
-        )
+        if req.confirmed_tts_id:
+            upd(18, f"확정 TTS 불러오는 중... [{req.provider}]")
+            tts_path, tts_duration, words = get_confirmed_tts(
+                narration,
+                req.confirmed_tts_id,
+                provider=req.provider,
+                voice_id=req.voice_id,
+            )
+        else:
+            upd(18, f"음성(TTS) 생성 중... [{req.provider}]")
+            tts_path, tts_duration, words = generate_tts(
+                narration,
+                provider=req.provider,
+                voice_id=req.voice_id,
+            )
         video_duration = max(1, int(math.ceil(tts_duration)) + 2)
 
         # 2) 클립 N개 다운로드 (캐시 활용)
@@ -341,24 +486,35 @@ def _run_multi_pipeline(job_id: str, req: MultiRenderRequest) -> None:
         # 3) 타이틀 블록 PNG + 무음 멀티클립 몽타주
         upd(58, "타이틀 블록 생성 중...")
         bg_path = create_background_frame(
-            hook_text, pill_text=req.pill, clipless=False,
+            hook_text,
+            pill_text=req.pill,
+            clipless=False,
+            hook_accent_color=req.hook_accent_color,
         )
 
-        upd(64, "멀티클립 몽타주 생성 중...")
-        montage_path = config.TEMP_DIR / f"{job_id}_montage.mp4"
-        compose_montage(
-            clips=downloaded,
-            transitions=req.transitions,
-            output_path=montage_path,
-        )
+        if len(downloaded) == 1:
+            upd(64, "단일 클립 사용 중...")
+            montage_path = Path(downloaded[0]["path"])
+        else:
+            upd(64, "멀티클립 몽타주 생성 중...")
+            montage_path = config.TEMP_DIR / f"{job_id}_montage.mp4"
+            compose_montage(
+                clips=downloaded,
+                transitions=req.transitions,
+                output_path=montage_path,
+            )
 
         # 4) 자막/GIF/BGM 준비
         upd(74, "자막 생성 중...")
         raw_subs = script.get("subtitles") or []
-        chunks = [s["text"] if isinstance(s, dict) else str(s) for s in raw_subs]
+        chunks = [str(s["text"] if isinstance(s, dict) else s).replace(".", "").strip() for s in raw_subs]
+        chunks = [c for c in chunks if c]
         if not chunks:
             chunks = chunk_narration(narration)
-        ass_path = generate_chunk_ass(chunks, words, tts_duration)
+        ass_path = generate_chunk_ass(
+            chunks, words, tts_duration,
+            highlight_color=req.subtitle_color,
+        )
 
         upd(80, "GIF 페치 중...")
         gif_records = _fetch_gifs(
@@ -393,18 +549,29 @@ def _run_multi_pipeline(job_id: str, req: MultiRenderRequest) -> None:
             "message": "완료!", "output": out_path.name, "error": None, "script": script,
         })
     except Exception as e:
+        message = str(e)
+        if "yt-dlp" in message:
+            message = "영상 다운로드 실패: URL, 공개 여부, 구간 시간을 확인해주세요."
         jobs[job_id].update({
             "status": "error", "progress": 100,
-            "message": str(e), "error": str(e),
+            "message": message, "error": message,
         })
 
 
 @app.get("/api/template-preview")
-async def template_preview(pill: str = "", hook: str = ""):
+async def template_preview(
+    pill: str = "",
+    hook: str = "",
+    hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT,
+):
     from pipeline.editor import create_template_preview
     hook_text = hook.strip() or "훅 텍스트|강조 한 줄"
     pill_text = pill.strip()
-    path = create_template_preview(hook_text, pill_text=pill_text)
+    path = create_template_preview(
+        hook_text,
+        pill_text=pill_text,
+        hook_accent_color=hook_accent_color,
+    )
     return FileResponse(
         str(path),
         media_type="image/png",
@@ -413,10 +580,23 @@ async def template_preview(pill: str = "", hook: str = ""):
 
 
 @app.get("/template-preview-window", response_class=HTMLResponse)
-async def template_preview_window(pill: str = "", hook: str = "", t: str = ""):
+async def template_preview_window(
+    pill: str = "",
+    hook: str = "",
+    hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT,
+    t: str = "",
+):
     """모바일 폰 크기 새 창으로 띄우는 PNG 뷰어 페이지."""
     from urllib.parse import urlencode
-    qs = urlencode({"pill": pill, "hook": hook, "t": t}, encoding="utf-8")
+    qs = urlencode(
+        {
+            "pill": pill,
+            "hook": hook,
+            "hook_accent_color": hook_accent_color,
+            "t": t,
+        },
+        encoding="utf-8",
+    )
     return HTMLResponse(f"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <title>📱 템플릿 미리보기</title>
@@ -445,7 +625,7 @@ def _run_pipeline(job_id: str, req: RenderRequest):
 
     try:
         from pipeline.downloader import download_clip
-        from pipeline.script_generator import generate_script_from_articles
+        from pipeline.script_generator import generate_script_from_articles, normalize_script_shape
         from pipeline.tts import generate_tts
         from pipeline.subtitle import generate_chunk_ass, chunk_narration
         from pipeline.editor import create_background_frame, compose_video
@@ -468,7 +648,8 @@ def _run_pipeline(job_id: str, req: RenderRequest):
             articles = [a.strip() for a in req.articles if a.strip()]
             if not articles:
                 raise ValueError("기사를 입력해주세요")
-            script = generate_script_from_articles(articles)
+            script = generate_script_from_articles(articles)["script"]
+        script = normalize_script_shape(script)
 
         upd(45, f"음성(TTS) 생성 중... [{req.provider}]")
         tts_path, tts_duration, words = generate_tts(
@@ -483,6 +664,7 @@ def _run_pipeline(job_id: str, req: RenderRequest):
             script["hook"],
             pill_text=req.pill,
             clipless=(clip_path is None),
+            hook_accent_color=req.hook_accent_color,
         )
 
         upd(72, "자막 생성 중...")
@@ -490,7 +672,10 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         chunks   = [s["text"] if isinstance(s, dict) else str(s) for s in raw_subs]
         if not chunks:
             chunks = chunk_narration(script["narration"])
-        ass_path = generate_chunk_ass(chunks, words, tts_duration)
+        ass_path = generate_chunk_ass(
+            chunks, words, tts_duration,
+            highlight_color=req.subtitle_color,
+        )
 
         upd(78, "GIF 페치 중...")
         gif_records = _fetch_gifs(script.get("gifs") or [], video_duration=video_duration)
@@ -553,6 +738,28 @@ def _run_youtube_upload(job_id: str, file_path: Path, req: YouTubeUploadRequest)
 _FALLBACK_GIF_KEYWORDS = ["mind blown", "wow", "shocked", "amazing", "no way"]
 
 
+def _coerce_float(value, default: float) -> float:
+    if value is None:
+        return default
+    if isinstance(value, str) and not value.strip():
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(value, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, str) and not value.strip():
+        return default
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def _fetch_gifs(specs: list, video_duration: float = 55.0, *, fallback: bool = True) -> list[dict]:
     """script['gifs'] 항목들을 Klipy로 페치. Claude가 빠뜨리거나 모두 실패하면
     안전망으로 기본 키워드 GIF 1개를 영상 1/3 지점에 삽입."""
@@ -567,9 +774,9 @@ def _fetch_gifs(specs: list, video_duration: float = 55.0, *, fallback: bool = T
             path = fetch_gif(kw)
             out.append({
                 "path":     path,
-                "start":    float(g.get("start", 0)),
-                "duration": float(g.get("duration", 2.0)),
-                "size":     int(g.get("size", 600)),
+                "start":    max(0.0, _coerce_float(g.get("start"), 0.0)),
+                "duration": max(0.5, _coerce_float(g.get("duration"), 2.0)),
+                "size":     max(120, _coerce_int(g.get("size"), 600)),
             })
         except Exception as exc:
             print(f"[gif] {kw!r} fetch 실패: {exc}", flush=True)

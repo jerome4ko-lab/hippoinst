@@ -7,9 +7,11 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import config
 
@@ -20,15 +22,24 @@ ALLOWED_TRANSITIONS = {
 TRANSITION_DUR = 0.4   # 초
 
 PREVIEW_DIR = config.TEMP_DIR / "preview"
+DOWNLOAD_TIMEOUT_SEC = 90
+THUMBNAIL_TIMEOUT_SEC = 20
 
 
 def parse_time(s: str) -> float:
-    """mm:ss 또는 hh:mm:ss 또는 'NNN초' → 초 단위 float."""
-    s = (s or "").strip()
+    """Parse mm:ss, hh:mm:ss, or seconds into seconds."""
+    s = str(s or "").strip()
     if not s:
         return 0.0
+    s = s.removesuffix("초").strip()
     if ":" in s:
-        parts = [float(p) for p in s.split(":")]
+        raw_parts = s.split(":")
+        if any(not p.strip() for p in raw_parts):
+            raise ValueError(f"시간 형식이 비어 있어요: {s!r}. 예: 00:30 또는 30")
+        try:
+            parts = [float(p) for p in raw_parts]
+        except ValueError:
+            raise ValueError(f"시간 형식을 확인해주세요: {s!r}. 예: 00:30 또는 30")
         if len(parts) == 2:
             m, sec = parts
             return m * 60 + sec
@@ -36,7 +47,26 @@ def parse_time(s: str) -> float:
             h, m, sec = parts
             return h * 3600 + m * 60 + sec
         raise ValueError(f"Bad time format: {s}")
-    return float(s)
+    try:
+        return float(s)
+    except ValueError:
+        raise ValueError(f"시간 형식을 확인해주세요: {s!r}. 예: 00:30 또는 30")
+
+
+def normalize_media_url(url: str) -> str:
+    """Return a clean HTTP(S) media URL or raise a user-facing error."""
+    clean = str(url or "").strip()
+    if not clean:
+        raise ValueError("URL을 입력해주세요")
+
+    lower = clean.lower()
+    if lower.startswith(("youtube.com/", "youtu.be/", "www.youtube.com/", "www.youtu.be/")):
+        clean = f"https://{clean}"
+
+    parsed = urlparse(clean)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(f"URL 형식이 아니에요: {clean}")
+    return clean
 
 
 def clip_id(url: str, start: float, end: float) -> str:
@@ -50,6 +80,7 @@ def download_section(url: str, start: float, end: float, out_path: Path) -> Path
 
     이미 out_path 존재 시 스킵 (캐시).
     """
+    url = normalize_media_url(url)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.exists() and out_path.stat().st_size > 0:
@@ -63,11 +94,14 @@ def download_section(url: str, start: float, end: float, out_path: Path) -> Path
         "yt-dlp",
         "--no-continue",
         "--force-overwrites",
+        "--socket-timeout", "15",
+        "--retries", "2",
+        "--fragment-retries", "2",
         "--download-sections", section,
         "-f", "bestvideo[ext=mp4][height<=1080]/bestvideo[ext=mp4]/bestvideo",
         "-o", str(out_path),
         url,
-    ])
+    ], timeout=DOWNLOAD_TIMEOUT_SEC)
     if not out_path.exists() or out_path.stat().st_size == 0:
         raise RuntimeError(f"yt-dlp 다운로드 실패: {url} {section}")
     return out_path
@@ -79,17 +113,22 @@ def extract_thumbnail(video_path: Path, out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     _run([
         "ffmpeg", "-y", "-loglevel", "error",
-        "-ss", "0.5",
+        "-ss", "0",
         "-i", str(video_path),
+        "-vf", "scale=iw:ih:out_range=full,format=yuvj420p",
         "-frames:v", "1",
+        "-update", "1",
         "-q:v", "4",
         str(out_path),
-    ])
+    ], timeout=THUMBNAIL_TIMEOUT_SEC)
+    if not out_path.exists() or out_path.stat().st_size == 0:
+        raise RuntimeError(f"ffmpeg 썸네일 추출 실패: {video_path}")
     return out_path
 
 
 def prepare_preview(url: str, start: float, end: float) -> dict:
     """미리보기용: 구간 다운로드 + 썸네일 추출. 캐시 사용."""
+    url = normalize_media_url(url)
     cid = clip_id(url, start, end)
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     video = PREVIEW_DIR / f"{cid}.mp4"
@@ -97,7 +136,12 @@ def prepare_preview(url: str, start: float, end: float) -> dict:
 
     download_section(url, start, end, video)
     if not thumb.exists() or thumb.stat().st_size == 0:
-        extract_thumbnail(video, thumb)
+        try:
+            extract_thumbnail(video, thumb)
+        except Exception as e:
+            # 썸네일은 UI 보조용이다. 영상 다운로드가 성공했으면 미리보기/합성은 계속 진행한다.
+            print(f"[preview] thumbnail skip - {e}", flush=True)
+            thumb = None
 
     return {
         "clip_id":  cid,
@@ -279,9 +323,40 @@ def compose_multiclip(
         raise RuntimeError(f"ffmpeg multiclip compose failed:\n{result.stderr[-3000:]}")
 
 
-def _run(cmd: list) -> None:
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-    if result.returncode != 0:
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+            capture_output=True,
+            text=True,
+        )
+    else:
+        proc.kill()
+
+
+def _run(cmd: list, *, timeout: int | float = 120) -> None:
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
         raise RuntimeError(
-            f"Command failed: {' '.join(str(c) for c in cmd)}\n{result.stderr}"
+            f"Command timed out after {timeout}s: {' '.join(str(c) for c in cmd)}\n"
+            f"{(stderr or '')[-3000:]}"
+        )
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"Command failed: {' '.join(str(c) for c in cmd)}\n{stderr}"
         )

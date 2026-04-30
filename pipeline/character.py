@@ -8,10 +8,11 @@ Note: H.264(libx264)는 yuva420p(alpha) 미지원이라 mp4가 아닌 webm 사�
 """
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional
+import array
 import math
 import subprocess
+from pathlib import Path
+from typing import Optional
 
 import config
 
@@ -44,7 +45,6 @@ MOUTH_FILES: dict[str, str] = {
     "closed": "mouth_closed.png",
     "small":  "mouth_small.png",
     "open":   "mouth_open.png",
-    "wide":   "mouth_wide.png",
 }
 
 # 오디오별 음량이 천차만별 (TTS 엔진/normalize 정도에 따라 RMS max가 0.005~0.3까지 흔들림)
@@ -54,13 +54,11 @@ MOUTH_FILES: dict[str, str] = {
 # 구간:
 #   closed: 0~30% (유성음 비활성·조용한 자음)
 #   small : 30~55%
-#   open  : 55~80%
-#   wide  : 80~100% (강세 모음)
+#   open  : 55~100% (강세 모음도 wide 대신 open 사용)
 _RMS_PERCENTILES: list[tuple[float, str]] = [
     (30.0, "closed"),
     (55.0, "small"),
-    (80.0, "open"),
-    (100.0, "wide"),
+    (100.0, "open"),
 ]
 # 추가 안전망 — 절대 silence threshold (이거보다 작은 RMS는 무조건 closed로 강제)
 _SILENCE_RMS = 1e-4
@@ -70,9 +68,22 @@ def is_available() -> bool:
     """캐릭터 오버레이 활성화 가능 여부 — config 토글, 라이브러리, 에셋 모두 점검."""
     if not getattr(config, "CHARACTER_ENABLED", False):
         return False
-    if not _NUMPY_OK:
-        return False
     return all((config.CHARACTER_DIR / fn).exists() for fn in MOUTH_FILES.values())
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    pos = (len(ordered) - 1) * pct / 100.0
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    if lo == hi:
+        return ordered[lo]
+    ratio = pos - lo
+    return ordered[lo] * (1.0 - ratio) + ordered[hi] * ratio
 
 
 def audio_to_mouth_frames(audio_path: Path, fps: int = 30) -> list[tuple[str, int]]:
@@ -80,9 +91,6 @@ def audio_to_mouth_frames(audio_path: Path, fps: int = 30) -> list[tuple[str, in
 
     동일 상태가 연속되면 묶어서 한 항목으로 합친다.
     """
-    if not _NUMPY_OK:
-        return []
-
     sr = 16000
     try:
         raw = subprocess.run(
@@ -99,35 +107,38 @@ def audio_to_mouth_frames(audio_path: Path, fps: int = 30) -> list[tuple[str, in
             timeout=60,
         ).stdout
     except Exception:
-        if not _LIBROSA_OK:
+        if not (_LIBROSA_OK and _NUMPY_OK):
             return []
         y, sr = librosa.load(str(audio_path), sr=None, mono=True)
+        samples = [float(v) for v in y]
     else:
-        y = np.frombuffer(raw, dtype=np.float32)
+        samples_array = array.array("f")
+        samples_array.frombytes(raw)
+        samples = samples_array.tolist()
 
-    if y.size == 0 or sr <= 0:
+    if not samples or sr <= 0:
         return []
 
     hop = max(1, int(round(sr / fps)))
     frame_len = hop * 2
-    frame_count = max(1, int(math.ceil(y.size / hop)))
+    frame_count = max(1, int(math.ceil(len(samples) / hop)))
     rms_vals: list[float] = []
     for i in range(frame_count):
         start = i * hop
-        frame = y[start:start + frame_len]
-        if frame.size == 0:
+        frame = samples[start:start + frame_len]
+        if not frame:
             rms_vals.append(0.0)
         else:
-            rms_vals.append(float(np.sqrt(np.mean(np.square(frame)))))
-    rms = np.asarray(rms_vals, dtype=np.float32)
+            square_sum = sum(v * v for v in frame)
+            rms_vals.append(math.sqrt(square_sum / len(frame)))
 
     # 백분위 → 절대 임계값으로 변환 (이 오디오 한정)
     thresholds = [
-        (float(np.percentile(rms, pct)), name) for pct, name in _RMS_PERCENTILES
+        (_percentile(rms_vals, pct), name) for pct, name in _RMS_PERCENTILES
     ]
 
     states: list[str] = []
-    for v in rms:
+    for v in rms_vals:
         if v < _SILENCE_RMS:
             states.append("closed")
             continue

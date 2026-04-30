@@ -62,62 +62,253 @@
     </div>
 
     <!-- ── 입력 패널 (가운데) ── -->
-    <div>
-
-      <!-- 기사 -->
+    <div class="articles-col">
       <div class="card">
         <div class="card-title">📰 기사 입력</div>
         <label class="field-label">기사 1</label>
-        <textarea id="article1" placeholder="기사 내용을 붙여넣으세요..."></textarea>
+        <textarea id="article1" placeholder="기사 본문 또는 URL 붙여넣기"></textarea>
         <label class="field-label">기사 2</label>
-        <textarea id="article2" placeholder="기사 내용을 붙여넣으세요..."></textarea>
+        <textarea id="article2" placeholder="기사 본문 또는 URL 붙여넣기"></textarea>
         <label class="field-label">기사 3</label>
-        <textarea id="article3" placeholder="기사 내용을 붙여넣으세요..."></textarea>
+        <textarea id="article3" placeholder="기사 본문 또는 URL 붙여넣기"></textarea>
       </div>
-
     </div>
 
     <!-- ── 스크립트 패널 ── -->
     <div class="card" style="display:flex;flex-direction:column">
       <div class="card-title">📝 스크립트</div>
 
-      <div class="narration-grid">
-        <!-- 좌: 생성된 원본 (read-only) -->
-        <div class="narration-col">
-          <div class="narration-header">
-            <label class="field-label" style="margin:0">
-              원본 (생성됨)
-              <span style="font-weight:400;color:var(--muted)">— 참고용</span>
-            </label>
-            <span style="visibility:hidden" class="btn btn-ghost btn-sm">📋 팩트체크</span>
-          </div>
-          <textarea class="narration-editor narration-readonly" id="s-narration-orig" readonly
-            placeholder="스크립트 생성 버튼을 누르면 여기에 표시됩니다."></textarea>
-        </div>
-
-        <!-- 우: 수정 영역 + 팩트체크 -->
-        <div class="narration-col">
-          <div class="narration-header">
-            <label class="field-label" style="margin:0">수정 영역</label>
-            <button class="btn btn-ghost btn-sm" type="button"
-                    onclick="runFactCheck()" id="btn-factcheck" disabled>📋 팩트체크</button>
-          </div>
-          <textarea class="narration-editor" id="s-narration"
-            placeholder="좌측과 동일한 내용이 들어옵니다. 자유롭게 수정하세요."></textarea>
-          <div class="factcheck-result" id="factcheck-result" hidden></div>
-        </div>
-      </div>
-      <div class="hint">* 수정한 나레이션은 하단 멀티클립 최종 합성에 반영됩니다.</div>
-
-      <div class="btn-row" style="margin-top:auto;padding-top:16px">
+      <div class="btn-row" style="margin-bottom:14px">
         <button class="btn btn-ghost"      onclick="generateScript()"        id="btn-gen">✨ 스크립트 생성</button>
         <button class="btn btn-secondary"  onclick="generateScript(true)"    id="btn-regen" disabled>🔄 재생성</button>
       </div>
+
+      <div class="narration-grid">
+        <!-- A: 생성된 원본 (장면 던지기형) -->
+        <div class="narration-col">
+          <div class="narration-header">
+            <label class="field-label" style="margin:0">
+              원본 A <span style="font-weight:400;color:var(--muted)">— 장면 던지기형</span>
+            </label>
+          </div>
+          <textarea class="narration-editor narration-readonly" id="s-narration-orig-a" readonly
+            placeholder="스크립트 생성 버튼을 누르면 여기에 표시됩니다."></textarea>
+        </div>
+
+        <!-- B: 생성된 원본 (숫자 충격형/역설형) -->
+        <div class="narration-col">
+          <div class="narration-header">
+            <label class="field-label" style="margin:0">
+              원본 B <span style="font-weight:400;color:var(--muted)">— 숫자 충격형/역설형</span>
+            </label>
+          </div>
+          <textarea class="narration-editor narration-readonly" id="s-narration-orig-b" readonly
+            placeholder="스크립트 생성 버튼을 누르면 여기에 표시됩니다."></textarea>
+        </div>
+
+        <!-- 수정 영역 — 빈 상태로 시작, 사용자가 두 원본 참고해서 직접 작성 -->
+        <div class="narration-col">
+          <div class="narration-header">
+            <label class="field-label" style="margin:0">수정 영역</label>
+          </div>
+          <textarea class="narration-editor" id="s-narration"
+            placeholder="좌측 두 원본을 참고해서 직접 작성하세요."
+            oninput="onNarrationChanged()"></textarea>
+        </div>
+      </div>
+      <div class="hint">* 수정 영역에 작성한 나레이션이 하단 멀티클립 최종 합성에 반영됩니다.</div>
     </div>
 
   </div>
 
-  <!-- 완성 영상 -->
+</div>
+
+<!-- ── TTS 확정 / 미리듣기 ── -->
+<div class="tts-section card">
+  <div class="card-title">🎙️ TTS 확정 / 미리듣기</div>
+
+  <div class="tts-confirm-layout">
+
+    <div class="tts-top-row">
+      <div class="tts-voice-pick">
+        <div class="field-label">목소리</div>
+        <div class="voice-options">
+          <div class="voice-btn" onclick="onPillSelect(this)">
+            <button type="button" class="voice-play" onclick="previewVoice('tc_68662745779b66ba84fc4d84',event)">▶</button>
+            <input type="radio" name="voice-choice" id="voice_sehun" value="tc_68662745779b66ba84fc4d84" data-label="세헌"
+                   onchange="onVoiceChoiceChange()">
+            <label for="voice_sehun">세헌</label>
+          </div>
+          <div class="voice-btn" onclick="onPillSelect(this)">
+            <button type="button" class="voice-play" onclick="previewVoice('tc_6731b38f075b04a944644218',event)">▶</button>
+            <input type="radio" name="voice-choice" id="voice_jegyeong" value="tc_6731b38f075b04a944644218" data-label="재경"
+                   onchange="onVoiceChoiceChange()">
+            <label for="voice_jegyeong">재경</label>
+          </div>
+          <div class="voice-btn" onclick="onPillSelect(this)">
+            <button type="button" class="voice-play" onclick="previewVoice('tc_62d66c3ef075c6ebd4114bd5',event)">▶</button>
+            <input type="radio" name="voice-choice" id="voice_ian" value="tc_62d66c3ef075c6ebd4114bd5" data-label="이안" checked
+                   onchange="onVoiceChoiceChange()">
+            <label for="voice_ian">이안</label>
+          </div>
+        </div>
+        <input type="radio" name="provider" value="typecast" checked hidden>
+        <input type="hidden" id="voice-id" value="tc_62d66c3ef075c6ebd4114bd5">
+        <audio id="voice-audio" style="display:none"></audio>
+      </div>
+
+      <div class="tts-action-row">
+        <button type="button" class="btn btn-primary" id="tts-generate-btn" onclick="confirmTts()">🎙️ TTS 생성</button>
+        <button type="button" class="btn btn-secondary" id="tts-listen-btn" onclick="playConfirmedTts()" disabled>▶ 듣기</button>
+      </div>
+    </div>
+
+    <div class="tts-confirm-player" id="tts-confirm-player" hidden>
+      <audio id="tts-confirm-audio" controls preload="none"></audio>
+    </div>
+
+    <div class="tts-status-grid">
+      <div class="tts-stat">
+        <span>상태</span>
+        <strong id="mc-tts-text">TTS 확정 필요</strong>
+      </div>
+      <div class="tts-stat">
+        <span>TTS 길이</span>
+        <strong id="tts-duration-text">–</strong>
+      </div>
+      <div class="tts-stat">
+        <span>필요 영상 길이</span>
+        <strong id="tts-required-text">–</strong>
+      </div>
+      <div class="tts-stat">
+        <span>컷 길이 상태</span>
+        <strong class="tts-fit-value" id="tts-fit-text">TTS 확정 필요</strong>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── 멀티클립 중심 최종 렌더 ── -->
+<div class="multiclip-section card">
+  <div class="card-title">🎞️ 최종 영상 합성</div>
+
+  <div class="final-settings">
+    <div class="settings-card settings-copy">
+      <div class="hook-row">
+        <div>
+          <label class="field-label">훅 텍스트 (첫번째줄) <span class="hint-inline" id="mc-hook-white-count">0/18 권장</span></label>
+          <input type="text" id="mc-hook-white" maxlength="18">
+          <div class="hook-suggest" id="mc-hook-white-suggest" data-target="mc-hook-white" hidden></div>
+        </div>
+        <div>
+          <label class="field-label">훅 텍스트 (두번째줄) <span class="hint-inline" id="mc-hook-gold-count">0/14 권장</span></label>
+          <input type="text" id="mc-hook-gold" maxlength="14">
+          <div class="hook-suggest" id="mc-hook-gold-suggest" data-target="mc-hook-gold" hidden></div>
+        </div>
+      </div>
+
+      <button class="btn btn-ghost btn-sm" type="button" onclick="openTemplatePreview()" id="btn-tpl">
+        🖼️ 템플릿 미리보기
+      </button>
+    </div>
+
+    <div class="selector-row">
+      <!-- BGM -->
+      <div class="settings-card selector-card">
+        <div class="field-label">BGM 선택</div>
+        <div class="bgm-options">
+          <div class="bgm-btn" onclick="onPillSelect(this)">
+            <button type="button" class="bgm-play" onclick="previewBgm('bgm_impact',event)">▶</button>
+            <input type="radio" name="bgm" id="bgm_impact" value="bgm_impact">
+            <label for="bgm_impact">Light</label>
+          </div>
+          <div class="bgm-btn" onclick="onPillSelect(this)">
+            <button type="button" class="bgm-play" onclick="previewBgm('bgm_light',event)">▶</button>
+            <input type="radio" name="bgm" id="bgm_light" value="bgm_light" checked>
+            <label for="bgm_light">Impact</label>
+          </div>
+          <div class="bgm-btn" onclick="onPillSelect(this)">
+            <button type="button" class="bgm-play" onclick="previewBgm('bgm_future',event)">▶</button>
+            <input type="radio" name="bgm" id="bgm_future" value="bgm_future">
+            <label for="bgm_future">Future</label>
+          </div>
+        </div>
+        <audio id="bgm-audio" style="display:none"></audio>
+      </div>
+
+      <!-- Hook second-line color -->
+      <div class="settings-card selector-card">
+        <div class="field-label">훅텍스트 두번째줄 색상</div>
+        <div class="color-options">
+          <label class="color-btn">
+            <input type="radio" name="hook-accent-color" value="#F0C040" data-label="골드" checked>
+            <span class="color-swatch" style="background:#F0C040"></span>
+            <span class="color-name">골드</span>
+          </label>
+          <label class="color-btn">
+            <input type="radio" name="hook-accent-color" value="#00FFC8" data-label="민트">
+            <span class="color-swatch" style="background:#00FFC8"></span>
+            <span class="color-name">민트</span>
+          </label>
+          <label class="color-btn">
+            <input type="radio" name="hook-accent-color" value="#FF4500" data-label="레드오렌지">
+            <span class="color-swatch" style="background:#FF4500"></span>
+            <span class="color-name">오렌지</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Subtitle highlight color -->
+      <div class="settings-card selector-card">
+        <div class="field-label">자막색상</div>
+        <div class="color-options">
+          <label class="color-btn">
+            <input type="radio" name="subtitle-color" value="#FFFFFF" data-label="흰색" checked>
+            <span class="color-swatch" style="background:#FFFFFF"></span>
+            <span class="color-name">흰색</span>
+          </label>
+          <label class="color-btn">
+            <input type="radio" name="subtitle-color" value="#FFD700" data-label="골드">
+            <span class="color-swatch" style="background:#FFD700"></span>
+            <span class="color-name">골드</span>
+          </label>
+          <label class="color-btn">
+            <input type="radio" name="subtitle-color" value="#00FFC8" data-label="민트">
+            <span class="color-swatch" style="background:#00FFC8"></span>
+            <span class="color-name">민트</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="timeline-wrap">
+    <div class="timeline" id="mc-timeline"></div>
+  </div>
+
+  <div class="multiclip-bottom">
+    <div class="mc-spacer"></div>
+    <span class="mc-pill mc-cut-total" id="mc-cut-total">컷 0s</span>
+    <span class="mc-pill mc-fit-pill" id="mc-fit-pill">–</span>
+    <button class="btn btn-primary" type="button" onclick="renderMulti()" id="mc-render">🚀 최종 합성</button>
+  </div>
+
+  <!-- 멀티클립 진행률 + 결과 -->
+  <div class="progress-wrap" id="mc-progress" style="margin-top:14px">
+    <div class="progress-label">
+      <span id="mc-progress-msg">준비 중...</span>
+      <span id="mc-progress-pct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="mc-progress-fill" style="width:0%"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── 완성 영상 (페이지 하단) ── -->
+<div class="container">
   <div class="output-wrap" id="output-wrap">
     <div class="card-title">🎉 완성 영상</div>
     <div class="output-grid">
@@ -188,97 +379,6 @@
       </div>
     </div>
   </div>
-
-</div>
-
-<!-- ── 멀티클립 중심 최종 렌더 ── -->
-<div class="multiclip-section card">
-  <div class="card-title">🎞️ 최종 영상 설정 + 멀티클립 타임라인</div>
-
-  <div class="final-settings">
-    <div class="settings-card settings-copy">
-      <label class="field-label">훅 텍스트 (`|`로 흰색·노란색 분리)</label>
-      <input type="text" id="mc-hook" placeholder="윤하 〈우산〉|파트 뺏어 부른 자의 최후">
-
-      <label class="field-label">알약 부제 (선택)</label>
-      <input type="text" id="mc-pill" placeholder="예: #로봇 시연 / 단독 / EXCLUSIVE">
-
-      <button class="btn btn-ghost btn-sm" type="button" onclick="openTemplatePreview()" id="btn-tpl">
-        🖼️ 템플릿 미리보기
-      </button>
-    </div>
-
-    <div class="settings-card">
-      <div class="field-label">BGM 선택</div>
-      <div class="bgm-options">
-        <div class="bgm-btn">
-          <button type="button" class="bgm-play" onclick="previewBgm('bgm_impact',event)">▶</button>
-          <input type="radio" name="bgm" id="bgm_impact" value="bgm_impact">
-          <label for="bgm_impact">Impact</label>
-        </div>
-        <div class="bgm-btn">
-          <button type="button" class="bgm-play" onclick="previewBgm('bgm_light',event)">▶</button>
-          <input type="radio" name="bgm" id="bgm_light" value="bgm_light" checked>
-          <label for="bgm_light">Light</label>
-        </div>
-        <div class="bgm-btn">
-          <button type="button" class="bgm-play" onclick="previewBgm('bgm_future',event)">▶</button>
-          <input type="radio" name="bgm" id="bgm_future" value="bgm_future">
-          <label for="bgm_future">Future</label>
-        </div>
-      </div>
-      <audio id="bgm-audio" style="display:none"></audio>
-    </div>
-
-    <div class="settings-card">
-      <div class="field-label">TTS 엔진</div>
-      <div class="provider-options">
-        <label class="provider-btn">
-          <input type="radio" name="provider" value="elevenlabs"
-                 onchange="onProviderChange()">
-          <span>ElevenLabs</span>
-        </label>
-        <label class="provider-btn">
-          <input type="radio" name="provider" value="typecast" checked
-                 onchange="onProviderChange()">
-          <span>Typecast</span>
-        </label>
-      </div>
-
-      <label class="field-label">Voice ID
-        <span id="voice-hint" style="font-weight:400;color:var(--muted);font-size:12px"></span>
-      </label>
-      <div class="voice-row">
-        <input type="text" id="voice-id" value="{{ default_voice_id }}" placeholder="Voice ID">
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-preview"
-                onclick="previewVoice()">🔊 미리듣기</button>
-      </div>
-      <audio id="voice-audio" style="display:none"></audio>
-    </div>
-  </div>
-
-  <div class="timeline-wrap">
-    <div class="timeline" id="mc-timeline"></div>
-  </div>
-
-  <div class="multiclip-bottom">
-    <button class="btn btn-ghost btn-sm" type="button" onclick="addClipCard()" id="mc-add">+ 컷 추가</button>
-    <div class="mc-spacer"></div>
-    <span class="mc-total" id="mc-total">총 0초</span>
-    <button class="btn btn-primary" type="button" onclick="renderMulti()" id="mc-render">🚀 최종 합성</button>
-  </div>
-
-  <!-- 멀티클립 진행률 + 결과 -->
-  <div class="progress-wrap" id="mc-progress" style="margin-top:14px">
-    <div class="progress-label">
-      <span id="mc-progress-msg">준비 중...</span>
-      <span id="mc-progress-pct">0%</span>
-    </div>
-    <div class="progress-track">
-      <div class="progress-fill" id="mc-progress-fill" style="width:0%"></div>
-    </div>
-  </div>
-
 </div>
 
 <div class="toast" id="toast"></div>
@@ -307,11 +407,16 @@ function setMode(mode) {
 // ── TTS provider / voice ──────────────────────────────────
 const VOICE_DEFAULTS = {
   elevenlabs: '{{ default_voice_id }}',
-  typecast:   '{{ default_typecast_voice_id }}',
+  typecast:   'tc_62d66c3ef075c6ebd4114bd5',
 };
 const VOICE_HINTS = {
   elevenlabs: '예: zgDzx5jLLCqEp6Fl7Kl7',
-  typecast:   '예: tc_ 로 시작 (Typecast 콘솔에서 복사)',
+  typecast:   '선택한 Typecast 목소리 사용',
+};
+const TYPECAST_VOICES = {
+  'tc_68662745779b66ba84fc4d84': '세헌',
+  'tc_6731b38f075b04a944644218': '재경',
+  'tc_62d66c3ef075c6ebd4114bd5': '이안',
 };
 const _userVoice = { elevenlabs: null, typecast: null };
 
@@ -325,22 +430,289 @@ function onProviderChange() {
   // 사용자가 직전에 입력해 둔 값이 있으면 살려두고, 아니면 기본값
   _userVoice[p === 'elevenlabs' ? 'typecast' : 'elevenlabs'] = inp.value.trim();
   inp.value = _userVoice[p] || VOICE_DEFAULTS[p] || '';
-  document.getElementById('voice-hint').textContent = VOICE_HINTS[p] || '';
+  const hint = document.getElementById('voice-hint');
+  if (hint) hint.textContent = VOICE_HINTS[p] || '';
+  if (typeof invalidateMeasured === 'function') invalidateMeasured();
 }
 
-async function previewVoice() {
+function currentVoiceId() {
+  const picked = document.querySelector('input[name="voice-choice"]:checked');
+  return picked?.value || document.getElementById('voice-id')?.value.trim() || VOICE_DEFAULTS.typecast;
+}
+
+function selectedHookAccentColor() {
+  return document.querySelector('input[name="hook-accent-color"]:checked')?.value || '#F0C040';
+}
+
+function selectedSubtitleColor() {
+  return document.querySelector('input[name="subtitle-color"]:checked')?.value || '#FFFFFF';
+}
+
+function onVoiceChoiceChange() {
+  const voiceId = currentVoiceId();
+  const inp = document.getElementById('voice-id');
+  if (inp) inp.value = voiceId;
+  if (typeof invalidateMeasured === 'function') invalidateMeasured();
+}
+
+// 알약(pill) 어디든 클릭 = 선택. ▶ 버튼은 stopPropagation 으로 여기 안 옴.
+function onPillSelect(pillEl) {
+  const radio = pillEl.querySelector('input[type="radio"]');
+  if (radio && !radio.checked) {
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
+
+// ── TTS 확정 / 미리듣기 ───────────────────────────────────
+const _ttsState = {
+  confirmedId: null,
+  measured: null,
+  confirmedFingerprint: null,
+  audioUrl: null,
+  confirming: false,
+};
+let _narrationDebounce = null;
+
+function _currentNarrationLines() {
+  return document.getElementById('s-narration').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+function _narrationFingerprint() {
+  const lines = _currentNarrationLines();
   const provider = currentProvider();
-  const voice_id = document.getElementById('voice-id').value.trim();
-  if (!voice_id) { toast('Voice ID를 입력해주세요', 'error'); return; }
+  const voiceId  = currentVoiceId() || '';
+  const payload = `${provider}|${voiceId}|${lines.join('\n')}`;
+  // djb2
+  let h = 5381;
+  for (let i = 0; i < payload.length; i++) h = ((h << 5) + h + payload.charCodeAt(i)) | 0;
+  return String(h);
+}
+
+function _hasConfirmedTts() {
+  return !!(_ttsState.confirmedId
+    && _ttsState.measured !== null
+    && _ttsState.confirmedFingerprint === _narrationFingerprint());
+}
+
+function _setConfirmedAudio(url) {
+  const player = document.getElementById('tts-confirm-player');
+  const audio = document.getElementById('tts-confirm-audio');
+  if (!player || !audio) return;
+  if (!url) {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    player.hidden = true;
+    return;
+  }
+  audio.src = url;
+  audio.load();
+  player.hidden = false;
+}
+
+function _clearConfirmedTts() {
+  _ttsState.confirmedId = null;
+  _ttsState.measured = null;
+  _ttsState.confirmedFingerprint = null;
+  _ttsState.audioUrl = null;
+  _setConfirmedAudio(null);
+}
+
+function updateTtsEstimate() {
+  // Legacy function name: now this invalidates confirmed TTS when inputs change.
+  if (_ttsState.confirmedId
+      && _ttsState.confirmedFingerprint !== _narrationFingerprint()) {
+    _clearConfirmedTts();
+  }
+  renderTtsPills();
+}
+
+function invalidateMeasured() {
+  _clearConfirmedTts();
+  renderTtsPills();
+}
+
+function onNarrationChanged() {
+  clearTimeout(_narrationDebounce);
+  _narrationDebounce = setTimeout(updateTtsEstimate, 350);
+}
+
+async function confirmTts() {
+  const lines = _currentNarrationLines();
+  if (!lines.length) { toast('나레이션이 비어있어요', 'error'); return; }
+  if (_ttsState.confirming) return;
+
+  const fingerprintAtCall = _narrationFingerprint();
+  _ttsState.confirming = true;
+  renderTtsPills();
+  try {
+    const res = await fetch('/api/tts-confirm', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        narration: lines,
+        provider:  currentProvider(),
+        voice_id:  currentVoiceId(),
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      toast('TTS 확정 실패: ' + data.error, 'error');
+      return;
+    }
+    if (fingerprintAtCall !== _narrationFingerprint()) {
+      console.log('[tts] 확정 결과 폐기 (narration/voice 변경됨)');
+      return;
+    }
+    _ttsState.confirmedId = data.tts_id;
+    _ttsState.measured = Number(data.measured);
+    _ttsState.confirmedFingerprint = fingerprintAtCall;
+    _ttsState.audioUrl = `${data.audio_url}?t=${Date.now()}`;
+    _setConfirmedAudio(_ttsState.audioUrl);
+    toast(
+      data.cache_hit
+        ? `확정 TTS 불러옴: ${_ttsState.measured.toFixed(1)}초`
+        : `TTS 확정 완료: ${_ttsState.measured.toFixed(1)}초`,
+      'success'
+    );
+  } catch (e) {
+    toast('오류: ' + e.message, 'error');
+  } finally {
+    _ttsState.confirming = false;
+    renderTtsPills();
+  }
+}
+
+async function measureTtsDuration() {
+  return confirmTts();
+}
+
+function playConfirmedTts() {
+  if (!_hasConfirmedTts()) {
+    toast('먼저 TTS를 생성해주세요', 'error');
+    return;
+  }
+  const audio = document.getElementById('tts-confirm-audio');
+  if (!audio) return;
+  if (!audio.src && _ttsState.audioUrl) {
+    _setConfirmedAudio(_ttsState.audioUrl);
+  }
+  audio.currentTime = 0;
+  audio.play().catch(() => toast('브라우저가 재생을 막았어요. 재생바를 눌러주세요.', 'error'));
+}
+
+function _setFitDisplay(text, className) {
+  const els = [
+    document.getElementById('mc-fit-pill'),
+    document.getElementById('tts-fit-text'),
+  ].filter(Boolean);
+  for (const el of els) {
+    el.textContent = text;
+    el.classList.remove('mc-fit-ok', 'mc-fit-bad', 'mc-fit-bad-soft', 'mc-fit-soft-ok');
+    if (className) el.classList.add(className);
+  }
+}
+
+function renderTtsPills() {
+  const ttsText = document.getElementById('mc-tts-text');
+  const generateBtn = document.getElementById('tts-generate-btn');
+  const listenBtn = document.getElementById('tts-listen-btn');
+  const durationText = document.getElementById('tts-duration-text');
+  const requiredText = document.getElementById('tts-required-text');
+  const renderBtn = document.getElementById('mc-render');
+  if (!ttsText) return;
+
+  const lines = _currentNarrationLines();
+  const cutTotal = mcCutTotalSec();
+  const isConfirmed = _hasConfirmedTts();
+  const videoTotal = isConfirmed ? Math.ceil(_ttsState.measured) + 2 : 0;
+
+  if (_ttsState.confirming) {
+    ttsText.textContent = 'TTS 생성 중... ⏳';
+    if (durationText) durationText.textContent = '생성 중';
+    if (requiredText) requiredText.textContent = '–';
+    if (generateBtn) {
+      generateBtn.disabled = true;
+      generateBtn.textContent = '생성 중...';
+    }
+    if (listenBtn) listenBtn.disabled = true;
+  } else if (!lines.length) {
+    ttsText.textContent = '나레이션 필요';
+    if (durationText) durationText.textContent = '–';
+    if (requiredText) requiredText.textContent = '–';
+    if (generateBtn) {
+      generateBtn.disabled = true;
+      generateBtn.textContent = '🎙️ TTS 생성';
+    }
+    if (listenBtn) listenBtn.disabled = true;
+  } else if (isConfirmed) {
+    ttsText.textContent = '확정 완료';
+    if (durationText) durationText.textContent = `${_ttsState.measured.toFixed(1)}s`;
+    if (requiredText) requiredText.textContent = `${videoTotal}s`;
+    if (generateBtn) {
+      generateBtn.disabled = false;
+      generateBtn.textContent = '다시 생성';
+    }
+    if (listenBtn) listenBtn.disabled = false;
+  } else {
+    ttsText.textContent = 'TTS 확정 필요';
+    if (durationText) durationText.textContent = '–';
+    if (requiredText) requiredText.textContent = '–';
+    if (generateBtn) {
+      generateBtn.disabled = false;
+      generateBtn.textContent = '🎙️ TTS 생성';
+    }
+    if (listenBtn) listenBtn.disabled = true;
+  }
+
+  let blockRender = true;
+  if (!lines.length) {
+    _setFitDisplay('–', '');
+  } else if (!isConfirmed) {
+    _setFitDisplay('TTS 확정 필요', 'mc-fit-bad-soft');
+  } else if (cutTotal <= 0) {
+    _setFitDisplay(`${videoTotal}s 필요`, 'mc-fit-bad-soft');
+  } else {
+    const diff = cutTotal - videoTotal;
+    if (diff >= 0) {
+      _setFitDisplay('✓ 합성 OK', 'mc-fit-ok');
+      blockRender = false;
+    } else {
+      _setFitDisplay(`⚠ 컷 ${(-diff).toFixed(1)}s 부족`, 'mc-fit-bad');
+    }
+  }
+
+  if (renderBtn) {
+    renderBtn.disabled = blockRender || _ttsState.confirming;
+    renderBtn.title = !isConfirmed
+      ? '최종 합성 전에 TTS를 확정해주세요.'
+      : blockRender
+        ? `컷 합계가 영상 길이(${videoTotal}s)보다 짧아요. 컷을 늘려주세요.`
+        : '';
+  }
+}
+
+function _confirmedTtsIdForRender() {
+  return _hasConfirmedTts() ? _ttsState.confirmedId : null;
+}
+
+async function previewVoice(voiceId, e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const provider = currentProvider();
+  const voice_id = voiceId || currentVoiceId();
+  if (!voice_id) { toast('Voice ID가 없어요', 'error'); return; }
 
   // narration 1줄 있으면 그걸 샘플로 (없으면 기본 인삿말)
   const narr = document.getElementById('s-narration').value
                   .split('\n').map(s => s.trim()).filter(Boolean)[0];
   const text = narr || '안녕하세요, 힙포인사이트입니다. 오늘도 흥미로운 AI 소식을 들고 왔어요.';
 
-  const btn   = document.getElementById('btn-preview');
   const audio = document.getElementById('voice-audio');
-  btn.disabled = true; btn.textContent = '⏳ 생성 중...';
+  const btn = e?.currentTarget;
+  const allBtns = document.querySelectorAll('.voice-play');
+  allBtns.forEach(b => b.disabled = true);
+  if (btn) btn.textContent = '⏳';
   try {
     const res = await fetch('/api/tts-preview', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -360,40 +732,46 @@ async function previewVoice() {
     const blob = await res.blob();
     audio.src = URL.createObjectURL(blob);
     audio.play();
-  } catch(e) { toast('오류: ' + e.message, 'error'); }
-  finally { btn.disabled = false; btn.textContent = '🔊 미리듣기'; }
+  } catch(err) { toast('오류: ' + err.message, 'error'); }
+  finally {
+    allBtns.forEach(b => b.disabled = false);
+    if (btn) btn.textContent = '▶';
+  }
 }
 
 // 초기 hint 세팅
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('voice-hint').textContent = VOICE_HINTS[currentProvider()] || '';
+  onVoiceChoiceChange();
 });
 
 // ── BGM preview ───────────────────────────────────────────
+let _bgmPlayToken = 0;
+
 function previewBgm(name, e) {
   e.preventDefault(); e.stopPropagation();
   const audio = document.getElementById('bgm-audio');
-  console.log('[bgm] click', name, 'audio el:', audio, 'current src:', audio.src);
   if (!audio) { toast('audio element 없음', 'error'); return; }
   // 같은 트랙 다시 누르면 토글 정지
   if (audio.dataset.name === name && !audio.paused) {
-    console.log('[bgm] pause');
+    _bgmPlayToken += 1;
     audio.pause();
     return;
   }
+  const token = ++_bgmPlayToken;
   audio.pause();
   audio.src = `/api/bgm/${name}?t=${Date.now()}`;
   audio.dataset.name = name;
   audio.volume = 0.6;
   audio.muted = false;
   audio.onerror = () => toast(`BGM 로드 실패 (audio onerror)`, 'error');
-  audio.oncanplay = () => console.log('[bgm] canplay', name);
-  audio.onplaying = () => console.log('[bgm] playing', name);
-  console.log('[bgm] play() →', audio.src);
+  audio.load();
   const p = audio.play();
   if (p && typeof p.then === 'function') {
-    p.then(() => console.log('[bgm] play resolved'))
-     .catch(err => toast(`BGM 재생 실패: ${err.name} - ${err.message}`, 'error'));
+    p.catch(err => {
+      const stale = token !== _bgmPlayToken;
+      if (stale || err.name === 'AbortError') return;
+      toast(`BGM 재생 실패: ${err.name} - ${err.message}`, 'error');
+    });
   }
 }
 
@@ -448,7 +826,7 @@ async function searchNews() {
   const btn   = document.getElementById('btn-news-search');
   btn.disabled = true; btn.textContent = '⏳ 검색 중...';
   const list = document.getElementById('news-list');
-  list.innerHTML = '<div class="news-empty">⏳ Claude에게 물어보는 중이에요 (~10초)</div>';
+  list.innerHTML = '<div class="news-empty">⏳ 최신 뉴스 찾는 중이에요 (~10초)</div>';
 
   try {
     const res = await fetch('/api/news-search', {
@@ -484,20 +862,28 @@ function renderNewsList(items, topic) {
 }
 
 function renderNewsItem(it) {
-  const links = (it.links || []).map(u =>
-    /^https?:\/\//.test(u)
-      ? `<li><a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a></li>`
-      : `<li class="pending">${escapeHtml(u || '검색 필요')}</li>`
-  ).join('');
+  const links = (it.links || []).map(u => {
+    if (!/^https?:\/\//.test(u)) {
+      return `<li class="pending">${escapeHtml(u || '검색 필요')}</li>`;
+    }
+    const safe  = escapeHtml(u);
+    const short = escapeHtml(shortLinkLabel(u, 42));
+    return `<li>
+      <a class="news-link-text" href="${safe}" target="_blank" rel="noopener" title="${safe}">${short}</a>
+      <button class="news-link-copy" type="button" data-url="${safe}"
+              onclick="copyLinkClick(this)" title="링크 복사">📋</button>
+    </li>`;
+  }).join('');
 
-  // 유튜브 원본(롱폼) — 정확한 URL이 있으면 그걸 쓰고, 없으면 키워드 검색 URL(롱폼 필터: >20분)
-  // sp=EgIYAg%253D%253D = "Long (>20 min)" 필터
+  // 유튜브 검색 — 정확한 URL이 있으면 그걸, 없으면 키워드 기반 관련성 검색
+  // sp=EgIQAQ%253D%253D = "Type: 동영상" 필터 (Shorts/채널/재생목록 제외)
   const ytUrl = it.youtube_url
     ? it.youtube_url
-    : `https://www.youtube.com/results?search_query=${encodeURIComponent(it.keyword || '')}&sp=EgIYAg%253D%253D`;
+    : `https://www.youtube.com/results?search_query=${encodeURIComponent(it.keyword || '')}&sp=EgIQAQ%253D%253D`;
   const ytLabel = it.youtube_url
     ? '유튜브 원본 영상 (직접 링크)'
-    : '유튜브 롱폼 검색 (>20분 필터)';
+    : '유튜브 관련 영상 검색';
+  const ytShort = shortLinkLabel(ytUrl, 42);
 
   const sourceRow = it.source
     ? `<div class="news-field">
@@ -511,8 +897,8 @@ function renderNewsItem(it) {
   return `
     <details class="news-item">
       <summary class="news-summary">
-        <span class="news-date">${escapeHtml(it.date || '')}</span>
         <span class="news-title">${escapeHtml(it.title || '')}</span>
+        <span class="news-date">${escapeHtml(it.date || '')}</span>
       </summary>
       <div class="news-body">
         ${sourceRow}
@@ -522,8 +908,10 @@ function renderNewsItem(it) {
         </div>
         <div class="news-field">
           <div class="news-field-label">${ytLabel}</div>
-          <div class="news-field-value">
-            <a href="${escapeHtml(ytUrl)}" target="_blank" rel="noopener">▶ ${escapeHtml(ytUrl)}</a>
+          <div class="news-field-value news-yt-row">
+            <a class="news-link-text" href="${escapeHtml(ytUrl)}" target="_blank" rel="noopener" title="${escapeHtml(ytUrl)}">▶ ${escapeHtml(ytShort)}</a>
+            <button class="news-link-copy" type="button" data-url="${escapeHtml(ytUrl)}"
+                    onclick="copyLinkClick(this)" title="링크 복사">📋</button>
           </div>
         </div>
         <div class="news-field">
@@ -540,6 +928,40 @@ function renderNewsItem(it) {
 }
 
 // ── Generate script ───────────────────────────────────────
+async function readJsonResponse(res) {
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      const msg = text.length > 140 ? text.slice(0, 140) + '...' : text;
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
+  }
+  if (!res.ok) {
+    const detail = data?.error || data?.detail || `HTTP ${res.status}`;
+    throw new Error(Array.isArray(detail) ? detail.map(d => d.msg || String(d)).join(', ') : detail);
+  }
+  return data || {};
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 120000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return await readJsonResponse(res);
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error(`요청 시간이 ${Math.round(timeoutMs / 1000)}초를 넘었어요`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function generateScript(regen = false) {
   const articles = ['article1','article2','article3']
     .map(id => document.getElementById(id).value.trim())
@@ -553,92 +975,181 @@ async function generateScript(regen = false) {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ articles }),
     });
-    const data = await res.json();
+    const data = await readJsonResponse(res);
     if (data.error) { toast(data.error, 'error'); return; }
-    fillScript(data.script);
+    fillScripts(data.scripts);
     document.getElementById('btn-regen').disabled  = false;
-    toast('스크립트 생성 완료!', 'success');
+
+    // 사용된 기사 번호 + 실패한 기사 경고
+    const used = data.used || [];
+    const warnings = data.warnings || [];
+    let msg = '스크립트 생성 완료!';
+    if (used.length) msg += ` (기사 ${used.join(', ')} 사용)`;
+    toast(msg, 'success');
+    // 실패 케이스는 별도 toast 로 알림 (3.5초 자동 종료라 큐잉)
+    for (const w of warnings) {
+      setTimeout(() => toast(w, 'error'), 100);
+    }
   } catch(e) { toast('오류: ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = '✨ 스크립트 생성'; }
 }
 
-function fillScript(s) {
-  document.getElementById('mc-hook').value = s.hook || '';
-  const text = (s.narration || []).join('\n');
-  document.getElementById('s-narration-orig').value = text;
-  document.getElementById('s-narration').value      = text;
-  document.getElementById('btn-factcheck').disabled = false;
-  const fcBox = document.getElementById('factcheck-result');
-  fcBox.hidden = true; fcBox.innerHTML = '';
-  const r = document.querySelector(`input[name="bgm"][value="${s.bgm_tag}"]`);
-  if (r) r.checked = true;
+function getHookText() {
+  // 흰색 / 골드 두 입력을 `|` 로 합쳐 백엔드에 전달.
+  // 둘 다 비면 ''. 한쪽만 채우면 'X|' 또는 '|X' 형태로 색 의도 보존.
+  const w = (document.getElementById('mc-hook-white')?.value || '').trim();
+  const g = (document.getElementById('mc-hook-gold')?.value  || '').trim();
+  if (!w && !g) return '';
+  return `${w}|${g}`;
+}
+
+function setHookText(combined) {
+  const s = combined || '';
+  const i = s.indexOf('|');
+  const w = i < 0 ? s : s.slice(0, i);
+  const g = i < 0 ? ''  : s.slice(i + 1);
+  const wEl = document.getElementById('mc-hook-white');
+  const gEl = document.getElementById('mc-hook-gold');
+  if (wEl) wEl.value = w;
+  if (gEl) gEl.value = g;
+  updateHookCounts();
+}
+
+function updateHookCounts() {
+  const limits = { 'mc-hook-white': 18, 'mc-hook-gold': 14 };
+  for (const [id, limit] of Object.entries(limits)) {
+    const input = document.getElementById(id);
+    const count = document.getElementById(`${id}-count`);
+    if (!input || !count) continue;
+    count.textContent = `${input.value.length}/${limit} 권장`;
+  }
+}
+
+function initHookCounters() {
+  for (const id of ['mc-hook-white', 'mc-hook-gold']) {
+    const input = document.getElementById(id);
+    if (input) input.addEventListener('input', updateHookCounts);
+  }
+  updateHookCounts();
+}
+
+function narrationLinesFromEditor() {
+  return document.getElementById('s-narration').value
+    .split('\n').map(l => l.trim()).filter(Boolean);
+}
+
+function _narrationToText(n) {
+  const lines = Array.isArray(n)
+    ? n.map(l => String(l).trim()).filter(Boolean)
+    : String(n || '').split('\n').map(l => l.trim()).filter(Boolean);
+  return lines.join('\n');
+}
+
+function _mergeUnique(...arrays) {
+  const seen = new Set();
+  const out = [];
+  for (const arr of arrays) {
+    for (const item of (arr || [])) {
+      const s = String(item || '').trim();
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+function fillScripts(scripts) {
+  // 항상 2개 기대. 부족하면 빈 객체로 패딩.
+  const a = scripts?.[0] || {};
+  const b = scripts?.[1] || {};
+
+  document.getElementById('s-narration-orig-a').value = _narrationToText(a.narration);
+  document.getElementById('s-narration-orig-b').value = _narrationToText(b.narration);
+  // 수정 영역은 건드리지 않음 — 사용자 작업 보존 (재생성 시에도 동일)
+
+  // 훅 칩: A·B 합쳐 중복 제거 후 최대 6개
+  const whites = _mergeUnique(a.hook_white_options, b.hook_white_options).slice(0, 6);
+  const golds  = _mergeUnique(a.hook_gold_options,  b.hook_gold_options).slice(0, 6);
+  renderHookSuggestions('mc-hook-white-suggest', whites);
+  renderHookSuggestions('mc-hook-gold-suggest',  golds);
+
+  // BGM: 두 버전이 동일하면 그대로, 다르면 A 기준
+  const bgmTag = a.bgm_tag || b.bgm_tag;
+  if (bgmTag) {
+    const r = document.querySelector(`input[name="bgm"][value="${bgmTag}"]`);
+    if (r) r.checked = true;
+  }
+  if (typeof updateTtsEstimate === 'function') updateTtsEstimate();
+}
+
+function renderHookSuggestions(containerId, options) {
+  const box = document.getElementById(containerId);
+  if (!box) return;
+  const targetId = box.dataset.target;
+  const opts = (options || []).map(s => String(s || '').trim()).filter(Boolean);
+  if (!opts.length) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML =
+    '<span class="hook-suggest-label">추천</span>' +
+    opts.map(text => {
+      const safe = escapeHtml(text);
+      return `<button type="button" class="hook-chip"
+        onclick="applyHookSuggestion('${escapeHtml(targetId)}', this)"
+        data-text="${safe}" title="클릭해서 입력칸에 채우기">${safe}</button>`;
+    }).join('');
+}
+
+function applyHookSuggestion(targetId, btn) {
+  const input = document.getElementById(targetId);
+  if (!input) return;
+  input.value = btn.dataset.text || btn.textContent || '';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.focus();
 }
 
 function collectScript() {
   return {
-    hook:      document.getElementById('mc-hook').value,
-    narration: document.getElementById('s-narration').value
-                 .split('\n').map(l => l.trim()).filter(Boolean),
+    hook: getHookText(),
+    narration: narrationLinesFromEditor(),
   };
-}
-
-// ── Fact check ────────────────────────────────────────────
-async function runFactCheck() {
-  const articles = ['article1','article2','article3']
-    .map(id => document.getElementById(id).value.trim())
-    .filter(Boolean);
-  const scriptText = document.getElementById('s-narration').value.trim();
-  if (!articles.length) { toast('원본 기사가 필요해요', 'error'); return; }
-  if (!scriptText)      { toast('검증할 스크립트가 비어있어요', 'error'); return; }
-
-  const btn = document.getElementById('btn-factcheck');
-  const box = document.getElementById('factcheck-result');
-  btn.disabled = true; btn.textContent = '검증 중...';
-  box.hidden = false;
-  box.className = 'factcheck-result loading';
-  box.innerHTML = '⏳ 기사와 대조 중...';
-
-  try {
-    const res  = await fetch('/api/fact-check', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ articles, script: scriptText }),
-    });
-    const data = await res.json();
-    if (data.error) {
-      box.className = 'factcheck-result bad';
-      box.textContent = '오류: ' + data.error;
-      return;
-    }
-    renderFactCheck(data.result);
-  } catch(e) {
-    box.className = 'factcheck-result bad';
-    box.textContent = '오류: ' + e.message;
-  } finally {
-    btn.disabled = false; btn.textContent = '📋 팩트체크';
-  }
-}
-
-function renderFactCheck(r) {
-  const box = document.getElementById('factcheck-result');
-  const status = r.status || 'warn';
-  const icon = { ok: '✅', warn: '⚠️', bad: '🚨' }[status] || '•';
-  box.className = `factcheck-result ${status}`;
-  let html = `<div class="fc-summary">${icon} ${r.summary || ''}</div>`;
-  if (Array.isArray(r.issues) && r.issues.length) {
-    html += '<ul class="fc-issues">';
-    for (const it of r.issues.slice(0, 5)) {
-      html += `<li><span class="fc-line">${escapeHtml(it.line || '')}</span>` +
-              `<span class="fc-reason">${escapeHtml(it.reason || '')}</span></li>`;
-    }
-    html += '</ul>';
-  }
-  box.innerHTML = html;
 }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
   }[c]));
+}
+
+function shortLinkLabel(url, max = 42) {
+  // 프로토콜 제거 → 그래도 길면 뒤를 …로 자름. 호버 title은 풀 URL 유지.
+  let s = String(url || '').replace(/^https?:\/\//, '');
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + '…';
+}
+
+async function copyLinkClick(btn) {
+  const url = btn.dataset.url || '';
+  if (!url) return;
+  const original = btn.textContent;
+  try {
+    await navigator.clipboard.writeText(url);
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+  } catch (e) {
+    // fallback — 일부 환경 (HTTP, 권한 거부)
+    const ta = document.createElement('textarea');
+    ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); btn.textContent = '✓'; btn.classList.add('copied'); }
+    catch { toast('복사 실패', 'error'); }
+    document.body.removeChild(ta);
+  }
+  setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1200);
 }
 
 // ── UI helpers ────────────────────────────────────────────
@@ -659,7 +1170,7 @@ function showOutput(filename) {
   const ytTitle = document.getElementById('yt-title');
   const ytDesc  = document.getElementById('yt-description');
   const ytTags  = document.getElementById('yt-tags');
-  const hook    = (document.getElementById('mc-hook').value || '힙포인사이트 쇼츠').trim();
+  const hook    = (getHookText().replace('|', ' ').trim() || '힙포인사이트 쇼츠');
   const narr    = (document.getElementById('s-narration').value || '').trim();
   if (!ytTitle.value) ytTitle.value = hook.slice(0, 100);
   if (!ytDesc.value)  ytDesc.value  = narr;
@@ -766,21 +1277,70 @@ const MC_TRANSITION_LABELS = {
   fade: '페이드', wipeleft: '왼쪽 와이프', wiperight: '오른쪽 와이프',
   dissolve: '디졸브', slideleft: '슬라이드', zoomin: '줌인',
 };
-const MC_MIN = 2, MC_MAX = 5;
-let mcClips = [
-  {url:'', start:'', end:'', preview:null},
-  {url:'', start:'', end:'', preview:null},
-];
+const MC_MIN = 1, MC_MAX = 5;
+let mcClips = Array.from({length: MC_MAX}, () => ({url:'', start:'', end:'', preview:null}));
 
 function mcParseSec(s) {
-  s = (s||'').trim();
-  if (!s) return 0;
+  const parsed = mcParseTimeInput(s);
+  return parsed.ok ? parsed.value : 0;
+}
+
+function mcParseTimeInput(s) {
+  s = String(s || '').trim();
+  if (!s) return { ok: false, value: 0, error: '시간을 입력해주세요' };
+  if (s.endsWith('초')) s = s.slice(0, -1).trim();
   if (s.includes(':')) {
-    const p = s.split(':').map(Number);
-    if (p.length === 2) return p[0]*60 + p[1];
-    if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+    const raw = s.split(':');
+    if (raw.some(part => !part.trim())) {
+      return { ok: false, value: 0, error: `시간 형식이 비어 있어요: ${s}` };
+    }
+    const p = raw.map(Number);
+    if (p.some(Number.isNaN)) {
+      return { ok: false, value: 0, error: `시간 형식을 확인해주세요: ${s}` };
+    }
+    if (p.length === 2) return { ok: true, value: p[0]*60 + p[1] };
+    if (p.length === 3) return { ok: true, value: p[0]*3600 + p[1]*60 + p[2] };
+    return { ok: false, value: 0, error: `시간 형식을 확인해주세요: ${s}` };
   }
-  const n = parseFloat(s); return isNaN(n) ? 0 : n;
+  const n = Number(s);
+  return Number.isFinite(n)
+    ? { ok: true, value: n }
+    : { ok: false, value: 0, error: `시간 형식을 확인해주세요: ${s}` };
+}
+
+function mcValidateClipTimes(c, label) {
+  const start = mcParseTimeInput(c.start);
+  const end = mcParseTimeInput(c.end);
+  if (!start.ok) return `${label} 시작 시간 오류: ${start.error}`;
+  if (!end.ok) return `${label} 종료 시간 오류: ${end.error}`;
+  if (end.value <= start.value) return `${label} 종료 시간이 시작보다 커야 해요`;
+  if (end.value - start.value > 60) return `${label}은 최대 60초까지 가능해요`;
+  return '';
+}
+
+function mcNormalizeUrl(raw) {
+  let url = String(raw || '').trim();
+  if (!url) return { ok: false, value: '', error: 'URL을 입력해주세요' };
+  if (/^(youtube\.com|youtu\.be|www\.youtube\.com|www\.youtu\.be)\//i.test(url)) {
+    url = `https://${url}`;
+  }
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
+      throw new Error('invalid URL');
+    }
+    return { ok: true, value: url, error: '' };
+  } catch (e) {
+    return { ok: false, value: '', error: `URL 형식이 아니에요: ${url}` };
+  }
+}
+
+function mcValidateClip(c, label) {
+  const url = mcNormalizeUrl(c.url);
+  if (!url.ok) return { ok: false, url: '', error: `${label}: ${url.error}` };
+  const timeError = mcValidateClipTimes(c, label);
+  if (timeError) return { ok: false, url: '', error: timeError };
+  return { ok: true, url: url.value, error: '' };
 }
 
 function mcRender() {
@@ -796,7 +1356,6 @@ function mcRender() {
       <div class="clip-card" data-idx="${i}">
         <div class="clip-card-head">
           <span class="clip-num">컷 ${i+1}</span>
-          ${mcClips.length > MC_MIN ? `<button class="clip-del" onclick="mcDeleteClip(${i})">✕</button>` : ''}
         </div>
         ${previewHtml}
         <input type="url" placeholder="유튜브 URL" value="${c.url||''}" oninput="mcSet(${i},'url',this.value)">
@@ -824,85 +1383,132 @@ function mcRender() {
   });
   tl.innerHTML = html;
   mcUpdateTotal();
-  document.getElementById('mc-add').disabled = mcClips.length >= MC_MAX;
 }
 
 function mcSet(i, key, val)        { mcClips[i][key] = val; if (key !== 'url') mcUpdateTotal(); }
 function mcSetTransition(i, val)   { (mcClips._transitions ||= [])[i] = val; }
-function mcDeleteClip(i)           { if (mcClips.length<=MC_MIN) return; mcClips.splice(i,1); (mcClips._transitions||=[]).splice(i,1); mcRender(); }
-function addClipCard()             { if (mcClips.length>=MC_MAX) return; mcClips.push({url:'',start:'',end:'',preview:null}); mcRender(); }
+
+function mcActiveClips() {
+  // 채워진 컷만 (URL+start+end 모두 입력된 것). 1번부터 연속이어야 함.
+  return mcClips.filter(c => c.url && c.start && c.end);
+}
+
+function mcCutTotalSec() {
+  const active = mcActiveClips();
+  let total = 0;
+  active.forEach(c => total += Math.max(0, mcParseSec(c.end) - mcParseSec(c.start)));
+  // 트랜지션 0.4s씩 겹침 — 채워진 컷 사이에서만
+  total -= 0.4 * Math.max(0, active.length - 1);
+  return Math.max(0, total);
+}
 
 function mcUpdateTotal() {
-  let total = 0;
-  mcClips.forEach(c => total += Math.max(0, mcParseSec(c.end) - mcParseSec(c.start)));
-  // 트랜지션 0.4s씩 겹침
-  total -= 0.4 * Math.max(0, mcClips.length - 1);
-  total = Math.max(0, total);
-  const el = document.getElementById('mc-total');
-  el.textContent = `총 ${total.toFixed(1)}초`;
-  el.className = 'mc-total';
-  if (total < 52) el.classList.add('warn');
-  else if (total <= 58) el.classList.add('ok');
-  else el.classList.add('over');
+  const total = mcCutTotalSec();
+  const el = document.getElementById('mc-cut-total');
+  if (el) el.textContent = `컷 ${total.toFixed(1)}s`;
+  renderTtsPills();
 }
 
 async function mcPreview(i) {
   const c = mcClips[i];
   if (!c.url || !c.start || !c.end) { toast('URL, 시작, 종료를 모두 입력', 'error'); return; }
+  const validation = mcValidateClip(c, `컷 ${i+1}`);
+  if (!validation.ok) { toast(validation.error, 'error'); return; }
+  c.url = validation.url;
   const card = document.querySelector(`.clip-card[data-idx="${i}"]`);
-  card.classList.add('loading');
+  if (card) card.classList.add('loading');
+  toast(`컷 ${i+1} 미리보기 생성 중...`, '');
   try {
-    const res = await fetch('/api/preview-clip', {
+    const j = await fetchJsonWithTimeout('/api/preview-clip', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({url:c.url, start:c.start, end:c.end}),
-    });
-    const j = await res.json();
+      body: JSON.stringify({url:validation.url, start:c.start, end:c.end}),
+    }, 100000);
     if (j.error) { toast(j.error, 'error'); return; }
     c.preview = j;
     mcRender();
     toast(`컷 ${i+1} 미리보기 OK (${j.duration}s)`, 'success');
   } catch(e) { toast('미리보기 실패: '+e.message, 'error'); }
-  finally { card.classList.remove('loading'); }
+  finally { if (card) card.classList.remove('loading'); }
 }
 
 async function renderMulti() {
   const script = collectScript();
   if (!script.narration.length) { toast('나레이션을 입력해주세요', 'error'); return; }
-  if (!document.getElementById('mc-hook').value.trim()) { toast('훅 텍스트를 입력해주세요', 'error'); return; }
+  if (!getHookText()) { toast('훅 텍스트를 입력해주세요', 'error'); return; }
+  const confirmedTtsId = _confirmedTtsIdForRender();
+  if (!confirmedTtsId) {
+    toast('최종 합성 전에 TTS를 먼저 확정해주세요', 'error');
+    renderTtsPills();
+    return;
+  }
 
-  // 검증
-  for (let i=0;i<mcClips.length;i++) {
+  // 검증 — 1번부터 연속으로 채워진 컷만 사용. 가운데 빈 컷 있으면 에러.
+  const activeIdx = [];
+  let stoppedAt = -1;
+  for (let i = 0; i < mcClips.length; i++) {
     const c = mcClips[i];
-    if (!c.url || !c.start || !c.end) { toast(`컷 ${i+1} 입력 미완료`, 'error'); return; }
+    const filled = !!(c.url && c.start && c.end);
+    if (!filled) {
+      if (stoppedAt < 0) stoppedAt = i;
+      continue;
+    }
+    if (stoppedAt >= 0) {
+      toast(`컷 ${stoppedAt + 1} 이 비어있어요. 컷은 1번부터 빈 칸 없이 채워주세요.`, 'error');
+      return;
+    }
+    const validation = mcValidateClip(c, `컷 ${i+1}`);
+    if (!validation.ok) { toast(validation.error, 'error'); return; }
+    c.url = validation.url;
+    activeIdx.push(i);
+  }
+  if (activeIdx.length < MC_MIN) {
+    toast(`최소 ${MC_MIN}개 컷이 필요해요`, 'error');
+    return;
+  }
+  const activeClips = activeIdx.map(i => mcClips[i]);
+  const requiredDuration = Math.ceil(_ttsState.measured) + 2;
+  const cutTotal = mcCutTotalSec();
+  if (cutTotal < requiredDuration) {
+    toast(`컷 길이가 ${Math.max(0, requiredDuration - cutTotal).toFixed(1)}초 부족해요`, 'error');
+    renderTtsPills();
+    return;
   }
   const transitions = [];
-  for (let i=0;i<mcClips.length-1;i++) {
-    transitions.push((mcClips._transitions||[])[i] || 'fade');
+  for (let i = 0; i < activeClips.length - 1; i++) {
+    transitions.push((mcClips._transitions || [])[i] || 'fade');
   }
   const body = {
-    clips: mcClips.map(c => ({url:c.url, start:c.start, end:c.end})),
+    clips: activeClips.map(c => ({url:c.url, start:c.start, end:c.end})),
     transitions,
     bgm: document.querySelector('input[name="bgm"]:checked')?.value || 'bgm_light',
-    pill: document.getElementById('mc-pill').value.trim(),
-    hook: document.getElementById('mc-hook').value.trim(),
+    pill: '',
+    hook: getHookText(),
     provider: currentProvider(),
-    voice_id: document.getElementById('voice-id').value.trim(),
+    voice_id: currentVoiceId(),
+    hook_accent_color: selectedHookAccentColor(),
+    subtitle_color: selectedSubtitleColor(),
+    confirmed_tts_id: confirmedTtsId,
     script,
   };
   document.getElementById('mc-render').disabled = true;
   document.getElementById('mc-progress').classList.add('show');
   hideOutput();
   try {
-    const res = await fetch('/api/render-multi', {
+    const j = await fetchJsonWithTimeout('/api/render-multi', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body),
-    });
-    const j = await res.json();
-    if (j.error) { toast(j.error, 'error'); document.getElementById('mc-render').disabled=false; return; }
+    }, 30000);
+    if (j.error) {
+      toast(j.error, 'error');
+      document.getElementById('mc-progress').classList.remove('show');
+      renderTtsPills();
+      return;
+    }
     mcListenProgress(j.job_id);
   } catch(e) {
     toast('합성 요청 실패: '+e.message, 'error');
-    document.getElementById('mc-render').disabled=false;
+    document.getElementById('mc-progress').classList.remove('show');
+    renderTtsPills();
   }
 }
 
@@ -915,14 +1521,14 @@ function mcListenProgress(jobId) {
     document.getElementById('mc-progress-fill').style.width = (job.progress||0)+'%';
     if (job.status === 'done') {
       es.close();
-      document.getElementById('mc-render').disabled = false;
       document.getElementById('mc-progress').classList.remove('show');
       showOutput(job.output);
+      renderTtsPills();
       toast('최종 영상 합성 완료!', 'success');
     } else if (job.status === 'error') {
       es.close();
-      document.getElementById('mc-render').disabled = false;
       document.getElementById('mc-progress').classList.remove('show');
+      renderTtsPills();
       toast('오류: ' + job.message, 'error');
     }
   };
@@ -930,13 +1536,20 @@ function mcListenProgress(jobId) {
 }
 
 // 초기 렌더
-document.addEventListener('DOMContentLoaded', mcRender);
+document.addEventListener('DOMContentLoaded', () => {
+  mcRender();
+  updateTtsEstimate();
+  initHookCounters();
+});
 
 // ── Template preview (mobile-sized popup) ─────────────────
 function openTemplatePreview() {
-  const pill = document.getElementById('mc-pill').value.trim();
-  const hook = document.getElementById('mc-hook').value.trim();
-  const params = new URLSearchParams({ pill, hook, t: Date.now() });
+  const params = new URLSearchParams({
+    pill: '',
+    hook: getHookText(),
+    hook_accent_color: selectedHookAccentColor(),
+    t: Date.now(),
+  });
   // iPhone 14 표준(390×844)에 살짝 여유. 같은 이름 → 재오픈 시 기존 창 갱신.
   const features = 'width=400,height=820,resizable=yes,scrollbars=no,menubar=no,toolbar=no,location=no,status=no';
   const win = window.open('/template-preview-window?' + params, 'hippoTplPreview', features);

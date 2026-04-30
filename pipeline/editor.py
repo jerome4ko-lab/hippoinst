@@ -2,8 +2,27 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import config
+
+
+# 제목 텍스트 블러 그림자 — 배경(bg_laser)과의 블렌딩용
+TITLE_SHADOW_RGBA = (26, 26, 46, 179)   # #1a1a2e, 70% 알파
+TITLE_SHADOW_BLUR = 8                    # GaussianBlur radius (시각 번짐 ~16-20px)
+# 타이틀 영역 하단 그라데이션 스트립 (#0e0e0e → 투명, 30px)
+TITLE_BOTTOM_GRAD_H        = 30
+TITLE_BOTTOM_GRAD_TOP_RGBA = (14, 14, 14, 255)
+TITLE_BOTTOM_GRAD_BOT_RGBA = (14, 14, 14, 0)
+
+TITLE_SIDE_MARGIN       = 72
+TITLE_BOTTOM_PADDING    = 30
+TITLE_TEXT_GAP          = 14
+TITLE_MAIN_FONT_SIZE    = 88
+TITLE_ACCENT_FONT_SIZE  = 96
+TITLE_MIN_FONT_SCALE    = 0.62
+TITLE_MAIN_MAX_LINES    = 2
+TITLE_ACCENT_MAX_LINES  = 2
+CHARACTER_BELOW_SUBTITLE_GAP = 24  # fallback when config.py has no explicit value
 
 
 def create_background_frame(
@@ -11,47 +30,86 @@ def create_background_frame(
     *,
     pill_text: str = "",
     clipless: bool = False,
+    hook_accent_color: str | None = None,
 ) -> Path:
-    """Render static background as PNG: 검정 타이틀 블록 + 자막 띠 + 클립 영역.
+    """Render static background as PNG.
 
-    레이아웃:
-      [0 ~ TITLE_H]      검정 배경 + (선택)노란 알약 + 흰색 메인 + 노란 강조
-      [SUB_Y ~ +SUB_H]   검정 자막 띠 (ASS가 위에 그림)
-      [CLIP_Y ~ 1920]    클립 영역. 클립 있으면 영상이 덮음. 없으면 그라디언트 + 큰 hook.
+    레이아웃 (bg_laser 위 합성):
+      [0 ~ 1920]            assets/bg_laser.png 이 베이스 (자동 생성 폴백 있음)
+      [TITLE_Y ~ TITLE_H]   타이틀(블러 다크네이비 그림자 → 텍스트), 마지막 30px 그라데이션 페이드
+      [CLIP_Y ~ 1920]       클립 자리 — 클립이 있으면 compose_video 단계에서 페더링 후 덮음
 
-    hook_text에 `|` 또는 `\\n`이 있으면 앞=흰색 메인, 뒤=노란 강조로 분리.
+    hook_text에 `|` 또는 `\\n`이 있으면 앞=흰색 메인, 뒤=선택 강조색으로 분리.
     """
     config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    img  = Image.new("RGB", (config.VIDEO_WIDTH, config.VIDEO_HEIGHT), config.COLORS["bg"])
+    W, H = config.VIDEO_WIDTH, config.VIDEO_HEIGHT
+    accent_rgb = _coerce_hex_rgb(hook_accent_color, config.COLORS["accent"])
 
-    # 클립 영역: 클립 없을 때 보일 그라디언트 (클립 있으면 영상이 덮음)
-    _paint_vertical_gradient(
-        img,
-        x=0, y=config.CLIP_Y,
-        w=config.VIDEO_WIDTH, h=config.CLIP_H,
-        top_rgb=config.COLORS["banner_bg"],
-        bot_rgb=config.COLORS["bg"],
+    bg_laser = config.ASSETS_DIR / "bg_laser6.png"
+    if not bg_laser.exists():
+        raise FileNotFoundError(
+            f"배경 이미지가 없습니다: {bg_laser} — assets 폴더에 직접 png를 넣어주세요."
+        )
+
+    base = Image.open(bg_laser).convert("RGB")
+    if base.size != (W, H):
+        base = base.resize((W, H), Image.LANCZOS)
+    canvas = base.convert("RGBA")
+
+    # 1) 제목 텍스트 블러 그림자 — 라스 배경 위에서도 본문이 살아있게
+    shadow_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    has_pill = bool(pill_text and pill_text.strip())
+
+    main_text, accent_text = _draw_title_text(
+        ImageDraw.Draw(shadow_layer),
+        hook_text,
+        main_color=TITLE_SHADOW_RGBA,
+        accent_color=TITLE_SHADOW_RGBA,
+        has_pill=has_pill,
     )
+    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(TITLE_SHADOW_BLUR))
+    canvas = Image.alpha_composite(canvas, shadow_layer)
 
-    draw = ImageDraw.Draw(img)
-    main_text, _ = _draw_title_block(draw, hook_text, pill_text)
+    # 2) 알약(불투명) + 본 제목 텍스트 (그림자 위에 또렷하게)
+    title_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    if has_pill:
+        _draw_pill(
+            ImageDraw.Draw(title_layer),
+            text=pill_text.strip(),
+            center_x=W // 2,
+            center_y=config.PILL_Y + config.PILL_H // 2,
+            slot_h=config.PILL_H,
+        )
+    _draw_title_text(
+        ImageDraw.Draw(title_layer),
+        hook_text,
+        main_color=config.COLORS["text"] + (255,),
+        accent_color=accent_rgb + (255,),
+        has_pill=has_pill,
+    )
+    canvas = Image.alpha_composite(canvas, title_layer)
 
-    # Clipless 모드: 클립 영역 중앙에 큰 hook 다시 (비주얼 앵커)
+    # 3) Clipless 모드: 클립 영역 중앙에 큰 hook 다시 (비주얼 앵커)
     if clipless:
         try:
             font_big = ImageFont.truetype(config.FONT_BOLD, 88)
         except OSError:
             font_big = ImageFont.load_default()
         anchor_y = config.CLIP_Y + config.CLIP_H // 2
-        _draw_centered(draw, main_text, font_big, anchor_y, config.COLORS["text"])
+        _draw_centered(ImageDraw.Draw(canvas), main_text, font_big, anchor_y, config.COLORS["text"])
 
     bg_path = config.TEMP_DIR / "background.png"
-    img.save(bg_path)
+    canvas.convert("RGB").save(bg_path)
     return bg_path
 
 
-def create_template_preview(hook_text: str, *, pill_text: str = "") -> Path:
+def create_template_preview(
+    hook_text: str,
+    *,
+    pill_text: str = "",
+    hook_accent_color: str | None = None,
+) -> Path:
     """쇼츠 템플릿 미리보기 PNG. 영상·TTS·ffmpeg 없이 즉시 생성.
 
     실제 영상의 영역(타이틀 / 클립 / 자막)에 더해, 미리보기에서만 YouTube
@@ -59,11 +117,17 @@ def create_template_preview(hook_text: str, *, pill_text: str = "") -> Path:
     를 흐리게 가상으로 표시한다.
     """
     config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    img  = Image.new("RGB", (config.VIDEO_WIDTH, config.VIDEO_HEIGHT), config.COLORS["bg"])
+    bg_laser = config.ASSETS_DIR / "bg_laser6.png"
+    if bg_laser.exists():
+        img = Image.open(bg_laser).convert("RGB")
+        if img.size != (config.VIDEO_WIDTH, config.VIDEO_HEIGHT):
+            img = img.resize((config.VIDEO_WIDTH, config.VIDEO_HEIGHT), Image.LANCZOS)
+    else:
+        img = Image.new("RGB", (config.VIDEO_WIDTH, config.VIDEO_HEIGHT), config.COLORS["bg"])
     draw = ImageDraw.Draw(img)
 
     # 1) 타이틀 블록 (실제 렌더와 동일)
-    _draw_title_block(draw, hook_text, pill_text)
+    _draw_title_block(draw, hook_text, pill_text, hook_accent_color=hook_accent_color)
 
     # 2) CLIP 영역 가이드 (4:3, 1080×810)
     _paint_vertical_gradient(
@@ -214,9 +278,11 @@ def _draw_title_block(
     draw: ImageDraw.ImageDraw,
     hook_text: str,
     pill_text: str = "",
-) -> tuple[str, str]:
-    """알약 + 메인(흰) + 강조(노랑) 두 줄 타이틀을 그리고 (main, accent)를 반환."""
-    if pill_text and pill_text.strip():
+    hook_accent_color: str | None = None,
+) -> None:
+    """Draw the title area used by the static template preview."""
+    has_pill = bool(pill_text and pill_text.strip())
+    if has_pill:
         _draw_pill(
             draw,
             text=pill_text.strip(),
@@ -224,22 +290,212 @@ def _draw_title_block(
             center_y=config.PILL_Y + config.PILL_H // 2,
             slot_h=config.PILL_H,
         )
+    _draw_title_text(
+        draw,
+        hook_text,
+        main_color=config.COLORS["text"],
+        accent_color=_coerce_hex_rgb(hook_accent_color, config.COLORS["accent"]),
+        has_pill=has_pill,
+    )
 
+
+def _draw_title_text(
+    draw: ImageDraw.ImageDraw,
+    hook_text: str,
+    *,
+    main_color: tuple,
+    accent_color: tuple,
+    has_pill: bool = False,
+) -> tuple[str, str]:
+    """메인(흰) + 강조(노랑) 두 줄 타이틀을 그리고 (main, accent)를 반환.
+
+    그림자 패스에서는 main/accent 둘 다 그림자색을 넘겨 같은 글자 모양으로 블러를 만든다.
+    """
     main_text, accent_text = _split_hook(hook_text)
 
-    try:
-        font_main   = ImageFont.truetype(config.FONT_BOLD, 88)
-        font_accent = ImageFont.truetype(config.FONT_BOLD, 96)
-    except OSError:
-        font_main = font_accent = ImageFont.load_default()
-
-    main_center_y   = config.TITLE_Y + int(config.TITLE_H * 0.50)
-    accent_center_y = config.TITLE_Y + int(config.TITLE_H * 0.78)
-
-    _draw_centered(draw, main_text, font_main, main_center_y, config.COLORS["text"])
-    if accent_text:
-        _draw_centered(draw, accent_text, font_accent, accent_center_y, config.COLORS["accent"])
+    layout = _fit_title_layout(draw, main_text, accent_text, has_pill=has_pill)
+    y = layout["top"]
+    for line in layout["main_lines"]:
+        _draw_centered_plain_line(draw, line, layout["main_font"], y, main_color)
+        y += layout["main_line_h"]
+    if layout["accent_lines"]:
+        y += TITLE_TEXT_GAP
+        for line in layout["accent_lines"]:
+            _draw_centered_plain_line(draw, line, layout["accent_font"], y, accent_color)
+            y += layout["accent_line_h"]
     return main_text, accent_text
+
+
+def _fit_title_layout(
+    draw: ImageDraw.ImageDraw,
+    main_text: str,
+    accent_text: str,
+    *,
+    has_pill: bool,
+) -> dict:
+    max_width = config.VIDEO_WIDTH - TITLE_SIDE_MARGIN * 2
+    top_limit = (
+        config.PILL_Y + config.PILL_H + 22
+        if has_pill
+        else config.TITLE_Y + 78
+    )
+    bottom_limit = config.CLIP_Y - TITLE_BOTTOM_PADDING
+    available_h = max(120, bottom_limit - top_limit)
+
+    fallback = None
+    for pct in range(100, int(TITLE_MIN_FONT_SCALE * 100) - 1, -2):
+        scale = pct / 100
+        main_font = _load_title_font(max(1, round(TITLE_MAIN_FONT_SIZE * scale)))
+        accent_font = _load_title_font(max(1, round(TITLE_ACCENT_FONT_SIZE * scale)))
+        main_lines = _wrap_text_to_width(draw, main_text, main_font, max_width) or [""]
+        accent_lines = _wrap_text_to_width(draw, accent_text, accent_font, max_width) if accent_text else []
+
+        main_ok = len(main_lines) <= TITLE_MAIN_MAX_LINES
+        accent_ok = len(accent_lines) <= TITLE_ACCENT_MAX_LINES
+        main_line_h = int(main_font.size * 1.08) if hasattr(main_font, "size") else 96
+        accent_line_h = int(accent_font.size * 1.05) if hasattr(accent_font, "size") else 100
+        total_h = len(main_lines) * main_line_h
+        if accent_lines:
+            total_h += TITLE_TEXT_GAP + len(accent_lines) * accent_line_h
+
+        layout = {
+            "main_font": main_font,
+            "accent_font": accent_font,
+            "main_lines": main_lines,
+            "accent_lines": accent_lines,
+            "main_line_h": main_line_h,
+            "accent_line_h": accent_line_h,
+            "total_h": total_h,
+        }
+        fallback = layout
+        if main_ok and accent_ok and total_h <= available_h:
+            layout["top"] = top_limit + (available_h - total_h) // 2
+            return layout
+
+    assert fallback is not None
+    fallback["main_lines"] = _limit_lines(
+        draw, fallback["main_lines"], fallback["main_font"], TITLE_MAIN_MAX_LINES, max_width
+    )
+    fallback["accent_lines"] = _limit_lines(
+        draw, fallback["accent_lines"], fallback["accent_font"], TITLE_ACCENT_MAX_LINES, max_width
+    )
+    total_h = len(fallback["main_lines"]) * fallback["main_line_h"]
+    if fallback["accent_lines"]:
+        total_h += TITLE_TEXT_GAP + len(fallback["accent_lines"]) * fallback["accent_line_h"]
+    fallback["top"] = top_limit + max(0, (available_h - total_h) // 2)
+    return fallback
+
+
+def _load_title_font(size: int) -> ImageFont.FreeTypeFont:
+    try:
+        return ImageFont.truetype(config.FONT_BOLD, size)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _wrap_text_to_width(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    max_width: int,
+) -> list[str]:
+    text = (text or "").strip()
+    if not text:
+        return []
+
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        candidate = word if not current else f"{current} {word}"
+        if _text_width(draw, candidate, font) <= max_width:
+            current = candidate
+            continue
+
+        if current:
+            lines.append(current)
+        if _text_width(draw, word, font) <= max_width:
+            current = word
+            continue
+
+        chunk = ""
+        for ch in word:
+            candidate = f"{chunk}{ch}"
+            if chunk and _text_width(draw, candidate, font) > max_width:
+                lines.append(chunk)
+                chunk = ch
+            else:
+                chunk = candidate
+        current = chunk
+
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _limit_lines(
+    draw: ImageDraw.ImageDraw,
+    lines: list[str],
+    font: ImageFont.FreeTypeFont,
+    max_lines: int,
+    max_width: int,
+) -> list[str]:
+    if len(lines) <= max_lines:
+        return lines
+    kept = lines[:max_lines]
+    kept[-1] = _ellipsize_to_width(draw, " ".join(lines[max_lines - 1:]), font, max_width)
+    return kept
+
+
+def _ellipsize_to_width(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    max_width: int,
+) -> str:
+    suffix = "..."
+    text = text.strip()
+    while text and _text_width(draw, text + suffix, font) > max_width:
+        text = text[:-1].rstrip()
+    return (text + suffix) if text else suffix
+
+
+def _text_width(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+) -> int:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
+
+
+def _draw_centered_plain_line(
+    draw: ImageDraw.ImageDraw,
+    line: str,
+    font: ImageFont.FreeTypeFont,
+    y: int,
+    color: tuple,
+) -> None:
+    """제목 영역용 단일 fill 라인. 그림자는 별도 blur layer에서 처리한다."""
+    bbox = draw.textbbox((0, 0), line, font=font)
+    w = bbox[2] - bbox[0]
+    x = (config.VIDEO_WIDTH - w) // 2
+    draw.text((x, y - bbox[1]), line, font=font, fill=color)
+
+
+def _draw_centered_plain(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    center_y: int,
+    color: tuple,
+) -> None:
+    lines       = textwrap.wrap(text, width=22) or [text]
+    line_height = font.size + 10
+    total_h     = len(lines) * line_height
+    y           = center_y - total_h // 2
+    for line in lines:
+        _draw_centered_plain_line(draw, line, font, y, color)
+        y += line_height
 
 
 def _draw_dashed_rect(
@@ -270,6 +526,15 @@ def _split_hook(hook_text: str) -> tuple[str, str]:
             head, _, tail = hook_text.partition(sep)
             return head.strip(), tail.strip()
     return hook_text.strip(), ""
+
+
+def _coerce_hex_rgb(value: str | None, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    if not value:
+        return fallback
+    s = str(value).strip().lstrip("#")
+    if len(s) != 6 or any(c not in "0123456789abcdefABCDEF" for c in s):
+        return fallback
+    return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
 
 
 def _draw_pill(
@@ -325,6 +590,42 @@ def _paint_vertical_gradient(
     img.paste(grad, (x, y))
 
 
+def _make_alpha_gradient_layer(
+    canvas_w: int, canvas_h: int,
+    *, x: int, y: int, w: int, h: int,
+    top_rgba: tuple, bot_rgba: tuple,
+) -> Image.Image:
+    """투명 RGBA 캔버스에 (x,y,w,h) 위치로 수직 알파 그라디언트 스트립을 얹어 반환."""
+    layer = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    strip = Image.new("RGBA", (1, h))
+    for i in range(h):
+        t = i / max(h - 1, 1)
+        c = tuple(int(top_rgba[k] + (bot_rgba[k] - top_rgba[k]) * t) for k in range(4))
+        strip.putpixel((0, i), c)
+    strip = strip.resize((w, h), Image.NEAREST)
+    layer.paste(strip, (x, y))
+    return layer
+
+
+def _ensure_clip_feather_mask(clip_w: int, clip_h: int, feather: int) -> Path:
+    """클립 4테두리 페더링 알파 마스크 — 한 번 만들어 캐시. ffmpeg alphamerge 의 source 로 쓴다."""
+    out = config.TEMP_DIR / f"clip_feather_{clip_w}x{clip_h}_{feather}.png"
+    if out.exists() and out.stat().st_size > 0:
+        return out
+
+    config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    inset = max(0, feather)
+    mask = Image.new("L", (clip_w, clip_h), 0)
+    md = ImageDraw.Draw(mask)
+    md.rectangle(
+        (inset, inset, clip_w - inset, clip_h - inset),
+        fill=255,
+    )
+    mask = mask.filter(ImageFilter.GaussianBlur(max(1, feather // 2)))
+    mask.save(out)
+    return out
+
+
 def compose_video(
     clip_path:   Path | None,
     bg_path:     Path,
@@ -353,8 +654,15 @@ def compose_video(
     # 인풋 인덱스 동적 할당
     inputs = ["-loop", "1", "-i", str(bg_path)]   # 0 = bg
     next_idx = 1
+    clip_idx = mask_idx = None
     if has_clip:
         inputs += ["-i", str(clip_path)]
+        clip_idx = next_idx
+        next_idx += 1
+        feather_px = int(getattr(config, "CLIP_FEATHER_PX", 50))
+        mask_path  = _ensure_clip_feather_mask(clip_w, clip_h, feather_px)
+        inputs += ["-loop", "1", "-i", str(mask_path)]
+        mask_idx = next_idx
         next_idx += 1
     if tts_path:
         inputs += ["-i", str(tts_path)]
@@ -380,7 +688,7 @@ def compose_video(
             char_dir = config.TEMP_DIR / "character_frames" / output_path.stem
             char_path = _character.render_character_frames(Path(tts_path), char_dir, fps=30)
         except Exception as e:
-            print(f"[character] skip — {e}")
+            print(f"[character] skip - {e}")
             char_path = None
         if char_path is not None:
             pattern = str(char_path / "character_%06d.png")
@@ -391,11 +699,17 @@ def compose_video(
     # ── 비디오 필터 ─────────────────────────────────────────────────
     parts: list[str] = []
     if has_clip:
+        # 클립 RGB → 알파 채널을 페더링 마스크로 교체 → 배경(bg_laser)과 부드럽게 블렌딩
         parts.append(
-            f"[1:v]crop='min(iw\\,ih*4/3)':ih,scale={clip_w}:{clip_h}[clip]"
+            f"[{clip_idx}:v]crop='min(iw\\,ih*4/3)':ih,"
+            f"scale={clip_w}:{clip_h},setsar=1,format=yuva420p[clipraw]"
         )
         parts.append(
-            f"[0:v][clip]overlay=0:{clip_y}[vbase0]"
+            f"[{mask_idx}:v]scale={clip_w}:{clip_h},format=gray[clipmask]"
+        )
+        parts.append("[clipraw][clipmask]alphamerge[clip]")
+        parts.append(
+            f"[0:v][clip]overlay=0:{clip_y}:format=auto[vbase0]"
         )
         cur = "vbase0"
     else:
@@ -424,12 +738,19 @@ def compose_video(
             f"[{cur}]subtitles='{ass_esc}':fontsdir='{_ffmpeg_path(config.ASSETS_DIR)}'[vsubs]"
         )
         cs = int(config.CHARACTER_SIZE)
-        # 클립 우하단 코너에 정확히 정렬 (캐릭터 하단 = 클립 하단).
-        # x는 우측 100px 안쪽 — YouTube 좋아요/싫어요 버튼과 겹치지 않도록.
-        char_y = config.CLIP_Y + config.CLIP_H - cs
+        # 자막 띠 아래쪽에 배치해 자막과 겹치지 않게 한다.
+        # x는 우측 CHARACTER_RIGHT_INSET px 안쪽 — YouTube 좋아요/싫어요 버튼과 겹치지 않도록.
+        below_subtitle_gap = int(
+            getattr(config, "CHARACTER_BELOW_SUBTITLE_GAP", CHARACTER_BELOW_SUBTITLE_GAP)
+        )
+        char_y = min(
+            config.SUB_Y + config.SUB_H + below_subtitle_gap,
+            config.VIDEO_HEIGHT - cs,
+        )
+        right_inset = int(getattr(config, "CHARACTER_RIGHT_INSET", 90))
         # PNG 시퀀스는 입력 시 이미 rgba. scale 뒤에도 rgba 유지해야 alpha 보존.
         parts.append(f"[{char_idx}:v]scale={cs}:{cs},format=rgba[char]")
-        parts.append(f"[vsubs][char]overlay=W-w-100:{char_y}:shortest=0[vout]")
+        parts.append(f"[vsubs][char]overlay=W-w-{right_inset}:{char_y}:shortest=0[vout]")
     else:
         parts.append(
             f"[{cur}]subtitles='{ass_esc}':fontsdir='{_ffmpeg_path(config.ASSETS_DIR)}'[vout]"

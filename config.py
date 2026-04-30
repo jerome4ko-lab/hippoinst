@@ -24,7 +24,7 @@ ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "zgDzx5jLLCqEp6Fl7Kl7")
 
 TYPECAST_API_KEY  = os.getenv("TYPECAST_API_KEY", "")
-TYPECAST_VOICE_ID = os.getenv("TYPECAST_VOICE_ID", "tc_672c5f5ce59fac2a48faeaee")
+TYPECAST_VOICE_ID = os.getenv("TYPECAST_VOICE_ID", "tc_62d66c3ef075c6ebd4114bd5")
 TYPECAST_MODEL    = os.getenv("TYPECAST_MODEL", "ssfm-v21")
 
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "typecast")  # elevenlabs | typecast
@@ -43,14 +43,19 @@ VIDEO_DURATION = 55
 
 # 캐릭터 립싱크 오버레이 (TTS RMS 기반)
 CHARACTER_ENABLED = True
-CHARACTER_SIZE    = 270                     # 정사각형 px
+CHARACTER_SIZE    = 219                     # 정사각형 px (ex-243에서 10% 축소)
 CHARACTER_DIR     = ASSETS_DIR / "character"
+CHARACTER_RIGHT_INSET = 176                 # 오른쪽에서 안쪽으로 들어가는 px (값↑ = 왼쪽 이동)
+CHARACTER_BELOW_SUBTITLE_GAP = -109         # 자막 띠 아래 간격 px (값↑ = 아래 이동)
+
+# 비디오 클립 페더링(테두리 부드럽게) — bg_laser 와의 블렌딩
+CLIP_FEATHER_PX = 15
 
 # Layout zones (y offset, height) in pixels
 # y=0~170 (170px)은 상단 검정 여백 — YouTube 상단 UI(헤더/탭) 회피
 PILL_Y   = 200;  PILL_H   = 80    # 노란 알약(부제) 슬롯
 TITLE_Y  = 170;  TITLE_H  = 380   # 검정 타이틀 블록
-CLIP_Y   = 550;  CLIP_H   = 810   # 클립 4:3 (1080×810)
+CLIP_Y   = 530;  CLIP_H   = 810   # 클립 4:3 (1080×810)
 SUB_Y    = 1360; SUB_H    = 200   # 자막 띠 (클립 아래)
 # y=1560~1920 (360px)은 하단 검정 여백.
 # 미리보기에선 YouTube 모바일 UI 가상 오버레이가 들어감.
@@ -62,6 +67,14 @@ FONT_REGULAR = str(ASSETS_DIR / "font_regular.ttf")
 SUBTITLE_FONT      = "Gmarket Sans TTF"  # ASS face name
 SUBTITLE_FONT_SIZE = 58
 SUBTITLE_PHRASES   = 4
+SUBTITLE_X_OFFSET  = -23                 # px (음수 = 왼쪽 이동)
+
+HOOK_ACCENT_COLOR_DEFAULT = "#F0C040"
+HOOK_ACCENT_COLOR_PRESETS = {
+    "gold":      HOOK_ACCENT_COLOR_DEFAULT,
+    "mint":      "#00FFC8",
+    "redorange": "#FF4500",
+}
 
 TTS_SPEED = 1.2   # 1.0 = 기본, 1.2 = 20% 빠르게
 

@@ -9,5 +9,6 @@ librosa>=0.10.0
 Pillow>=10.0.0
 python-dotenv>=1.0.0
 python-multipart>=0.0.9
+trafilatura>=1.10.0
 uvicorn[standard]>=0.29.0
 yt-dlp>=2024.1.0

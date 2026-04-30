@@ -27,6 +27,7 @@ from pipeline.script_generator  import (
     generate_script,
     generate_script_from_articles,
     load_articles,
+    normalize_script_shape,
 )
 from pipeline.tts               import generate_tts
 from pipeline.subtitle          import align_chunks_to_words, chunk_narration
@@ -52,8 +53,9 @@ def render_short(
     clip_path = download_clip(url, start, duration)
 
     print("[2/7] 스크립트 생성 …")
-    script = _make_script(title)
-    print(f"      훅: {script['hook']}  |  BGM: {script['bgm_tag']}")
+    script = normalize_script_shape(_make_script(title))
+    hook_text = script["hook"]
+    print(f"      훅: {hook_text}  |  BGM: {script['bgm_tag']}")
     print(f"      narration {len(script['narration'])}줄, "
           f"subtitles {len(script.get('subtitles') or [])}청크, "
           f"gifs {len(script.get('gifs') or [])}개")
@@ -121,7 +123,7 @@ def render_short(
 
     rel = lambda p: f"job_{job_id}/{p.name}" if p else None
     props = {
-        "hook":              script["hook"],
+        "hook":              hook_text,
         "hashtags":          script["hashtags"],
         "bgImageSrc":        None,
         "clipSrc":           rel(asset_clip),
@@ -130,6 +132,8 @@ def render_short(
         "bgmVolume":         0.08,
         "ttsVolume":         1.0,
         "durationInSeconds": float(video_duration),
+        "hookAccentColor":    config.HOOK_ACCENT_COLOR_DEFAULT,
+        "subtitleColor":      "#FFFFFF",
         "subtitles":         aligned,
         "gifs":              gif_props,
     }
@@ -138,7 +142,7 @@ def render_short(
     print(f"      → {props_path.relative_to(config.BASE_DIR)}")
 
     print("[7/7] Remotion 렌더 …")
-    out_name = _format_output_name(script["hook"], title)
+    out_name = _format_output_name(hook_text, title)
     output_path = config.OUTPUT_DIR / out_name
     npx = "npx.cmd" if os.name == "nt" else "npx"
     cmd = [
@@ -155,7 +159,7 @@ def _make_script(title: str | None) -> dict:
     if _ARTICLES_FILE.exists():
         articles = load_articles(_ARTICLES_FILE)
         if articles:
-            return generate_script_from_articles(articles)
+            return generate_script_from_articles(articles)["script"]
     if not title:
         sys.exit("articles.txt가 없으면 --title 이 필요합니다.")
     return generate_script(title)

@@ -45,6 +45,8 @@ export type ShortProps = {
   ttsVolume: number;
   durationInSeconds: number;
   subtitles: SubtitleChunk[];
+  hookAccentColor?: string;
+  subtitleColor?: string;
   gifs?: GifOverlay[];
 };
 
@@ -65,6 +67,24 @@ const COLOR = {
   brand:    "#c9b8e8",
 };
 
+const normalizeHexColor = (value: string | null | undefined, fallback: string): string => {
+  if (!value) {
+    return fallback;
+  }
+  const s = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(s) ? s : fallback;
+};
+
+const splitHook = (hook: string): [string, string] => {
+  for (const sep of ["\n", "|"]) {
+    if (hook.includes(sep)) {
+      const [head, ...rest] = hook.split(sep);
+      return [head.trim(), rest.join(sep).trim()];
+    }
+  }
+  return [hook.trim(), ""];
+};
+
 export const defaultProps: ShortProps = {
   hook: "AI 로봇이 단 하루 만에",
   hashtags: "#AI #로봇 #미래기술 #힙포인사이트",
@@ -75,6 +95,8 @@ export const defaultProps: ShortProps = {
   bgmVolume: 0.08,
   ttsVolume: 1.0,
   durationInSeconds: 8,
+  hookAccentColor: "#f0c040",
+  subtitleColor: "#ffffff",
   subtitles: [
     { text: "이 로봇은",       start: 0.0, end: 1.5 },
     { text: "단 하루 만에",     start: 1.5, end: 3.0 },
@@ -85,14 +107,20 @@ export const defaultProps: ShortProps = {
 };
 
 const SUBTITLE_TOP = LAYOUT.clip.y + LAYOUT.clip.h - 200;
+const SUBTITLE_X_OFFSET = -23;
 // GIF 앵커 — 클립 영역 중앙에서 살짝 위로 (자막 침범 방지 + 시선 균형)
 const GIF_CENTER_Y = LAYOUT.clip.y + LAYOUT.clip.h / 2 - 90;
 
 // ── Subtitle chunk view ──────────────────────────────────────────────────────
 
-const SubtitleChunkView: React.FC<{ text: string; durationInFrames: number }> = ({
+const SubtitleChunkView: React.FC<{
+  text: string;
+  durationInFrames: number;
+  color: string;
+}> = ({
   text,
   durationInFrames,
+  color,
 }) => {
   const frame = useCurrentFrame();
 
@@ -124,8 +152,8 @@ const SubtitleChunkView: React.FC<{ text: string; durationInFrames: number }> = 
       <div style={{
         position: "absolute",
         top: SUBTITLE_TOP,
-        left: 0,
-        right: 0,
+        left: SUBTITLE_X_OFFSET,
+        right: -SUBTITLE_X_OFFSET,
         display: "flex",
         justifyContent: "center",
         padding: "0 60px",
@@ -133,13 +161,13 @@ const SubtitleChunkView: React.FC<{ text: string; durationInFrames: number }> = 
         transform: `translateY(${translateY}px) scale(${scale})`,
       }}>
         <span style={{
-          color: COLOR.accent,
+          color,
           fontSize: 82,
           fontWeight: 700,
           textAlign: "center",
           textShadow: "0 4px 14px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.95)",
           fontFamily: "Gmarket Sans TTF, Pretendard, sans-serif",
-          letterSpacing: -1.5,
+          letterSpacing: 0,
           lineHeight: 1.05,
         }}>
           {text}
@@ -212,6 +240,9 @@ const GifOverlayView: React.FC<{
 export const HippoShort: React.FC<ShortProps> = (props) => {
   const { fps } = useVideoConfig();
   const gifs = props.gifs ?? [];
+  const hookAccentColor = normalizeHexColor(props.hookAccentColor, COLOR.accent);
+  const subtitleColor = normalizeHexColor(props.subtitleColor, COLOR.text);
+  const [hookMain, hookAccent] = splitHook(props.hook);
 
   return (
     <AbsoluteFill style={{ backgroundColor: COLOR.bg }}>
@@ -245,17 +276,25 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
             width: "100%",
             height: LAYOUT.title.h,
             display: "flex",
+            flexDirection: "column",
             justifyContent: "center",
             alignItems: "center",
-            color: COLOR.accent,
-            fontSize: 64,
             fontWeight: 700,
             textAlign: "center",
             padding: "0 60px",
             fontFamily: "Gmarket Sans TTF, Pretendard, sans-serif",
             textShadow: "2px 2px 0 rgba(0,0,0,0.6)",
           }}>
-            {props.hook}
+            {hookMain && (
+              <span style={{ color: COLOR.text, fontSize: 64, lineHeight: 1.05 }}>
+                {hookMain}
+              </span>
+            )}
+            {hookAccent && (
+              <span style={{ color: hookAccentColor, fontSize: 70, lineHeight: 1.05 }}>
+                {hookAccent}
+              </span>
+            )}
           </div>
           <div style={{
             position: "absolute",
@@ -328,7 +367,11 @@ export const HippoShort: React.FC<ShortProps> = (props) => {
             durationInFrames={dur}
             layout="none"
           >
-            <SubtitleChunkView text={sub.text} durationInFrames={dur} />
+            <SubtitleChunkView
+              text={sub.text}
+              durationInFrames={dur}
+              color={subtitleColor}
+            />
           </Sequence>
         );
       })}

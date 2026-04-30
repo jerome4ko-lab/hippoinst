@@ -6,7 +6,12 @@ from pathlib import Path
 
 import config
 from pipeline.downloader       import download_clip
-from pipeline.script_generator import generate_script, generate_script_from_articles, load_articles
+from pipeline.script_generator import (
+    generate_script,
+    generate_script_from_articles,
+    load_articles,
+    normalize_script_shape,
+)
 from pipeline.subtitle         import generate_chunk_ass, chunk_narration
 from pipeline.editor           import create_background_frame, compose_video
 from pipeline.tts              import generate_tts  # returns (path, duration, words)
@@ -33,13 +38,15 @@ def main():
         articles = load_articles(_ARTICLES_FILE)
         if articles:
             print(f"[2/6] 스크립트 생성 중: articles.txt ({len(articles)}개 기사 기반)")
-            script = generate_script_from_articles(articles)
+            script = generate_script_from_articles(articles)["script"]
         else:
             script = _script_from_title(args)
     else:
         script = _script_from_title(args)
+    script = normalize_script_shape(script)
 
-    print(f"      훅:      {script['hook']}")
+    hook_text = script["hook"]
+    print(f"      훅:      {hook_text}")
     print(f"      BGM 태그: {script['bgm_tag']}")
     print(f"      해시태그: {script['hashtags']}")
     script_path = config.OUTPUT_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_script.txt"
@@ -52,7 +59,7 @@ def main():
     video_duration = min(round(tts_duration) + 2, args.duration)
 
     print("[4/6] 배경 이미지 생성 중...")
-    bg_path = create_background_frame(script["hook"], script["hashtags"])
+    bg_path = create_background_frame(hook_text, pill_text=script["hashtags"])
     print(f"      → {bg_path}")
 
     print("[5/6] 자막(ASS) 생성 중...")
@@ -69,7 +76,7 @@ def main():
         print(f"      ※ {script['bgm_tag']} 파일 없음 → bgm_light로 대체")
         bgm_path = config.BGM_FALLBACK
 
-    raw_keyword = (args.title or script["hook"])[:20]
+    raw_keyword = (args.title or hook_text)[:20]
     keyword     = re.sub(r'[\\/:*?"<>|]', "", raw_keyword).replace(" ", "_")
     date_str    = datetime.now().strftime("%Y%m%d")
     output_path = config.OUTPUT_DIR / f"{date_str}_{keyword}.mp4"
@@ -81,10 +88,12 @@ def main():
 
 
 def _save_script(script: dict, path: Path) -> None:
+    hook_text = script.get("hook", "")
+    hashtags = script.get("hashtags", "")
     lines = [
-        f"훅:      {script['hook']}",
+        f"훅:      {hook_text}",
         f"BGM 태그: {script['bgm_tag']}",
-        f"해시태그: {script['hashtags']}",
+        f"해시태그: {hashtags}",
         "",
         "── 나레이션 ───────────────────────────",
     ]
