@@ -19,9 +19,19 @@ import config
 
 app = FastAPI(title="힙포인사이트 쇼츠 생성기")
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/output", StaticFiles(directory=str(config.OUTPUT_DIR)), name="output")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 jobs: dict[str, dict] = {}
+
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "*" * len(key)
+    return key[:4] + "*" * (len(key) - 8) + key[-4:]
 
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -59,6 +69,25 @@ class YouTubeUploadRequest(BaseModel):
     made_for_kids:  bool = False
 
 
+class ScheduleUploadRequest(YouTubeUploadRequest):
+    """예약 업로드 등록 요청. scheduled_at 은 KST ISO 8601 (예: 2026-05-02T08:00:00+09:00).
+
+    HTML5 datetime-local 의 'YYYY-MM-DDTHH:MM' 도 허용 — 파싱 시 KST 로 가정.
+    """
+    scheduled_at: str
+
+
+class UploadPatchRequest(BaseModel):
+    """예약된 업로드 부분 수정. None 인 필드는 변경하지 않음."""
+    title:          Optional[str]       = None
+    description:    Optional[str]       = None
+    tags:           Optional[list[str]] = None
+    category_id:    Optional[str]       = None
+    privacy_status: Optional[str]       = None
+    made_for_kids:  Optional[bool]      = None
+    scheduled_at:   Optional[str]       = None
+
+
 class PreviewClipRequest(BaseModel):
     url:   str
     start: str   # mm:ss / hh:mm:ss / 초
@@ -77,6 +106,7 @@ class MultiRenderRequest(BaseModel):
     confirmed_tts_id: Optional[str] = None
     hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT  # 훅 두번째줄 색상 (#RRGGBB)
     subtitle_color: str = "#FFFFFF"      # 자막 강조 색상 (#RRGGBB)
+    bg_template: str = "bg_purple"
 
 
 class RenderRequest(BaseModel):
@@ -91,6 +121,30 @@ class RenderRequest(BaseModel):
     pill: str = ""                   # 노란 알약 부제 (선택)
     hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT  # 훅 두번째줄 색상 (#RRGGBB)
     subtitle_color: str = "#FFFFFF"  # 자막 강조 색상 (#RRGGBB)
+    bg_template: str = "bg_purple"
+
+
+class ApiKeyUpdateRequest(BaseModel):
+    provider: str   # "typecast" | "elevenlabs"
+    api_key: str
+
+
+class SingleClipRenderRequest(BaseModel):
+    clip_url:         str
+    clip_start:       str = "00:00:00"
+    clip_end:         str = "00:00:10"
+    clip_volume:      float = 1.0           # 0.0~2.0 (UI 0~200%)
+    use_tts:          bool = True
+    bgm:              str = "bgm_light"
+    bg_template:      str = "bg_purple"
+    pill:             str = ""
+    hook:             str = ""
+    provider:         str = "typecast"
+    voice_id:         str = config.TYPECAST_VOICE_ID
+    script:           Optional[dict] = None
+    confirmed_tts_id: Optional[str] = None
+    hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT
+    subtitle_color:   str = "#FFFFFF"
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -101,9 +155,15 @@ async def index(request: Request):
         request=request,
         name="index.html",
         context={
-            "default_voice_id":          config.TYPECAST_VOICE_ID,
+            "default_voice_id":          config.ELEVENLABS_VOICE_ID,
             "default_typecast_voice_id": config.TYPECAST_VOICE_ID,
+            "tts_voices":                config.TTS_UI_VOICES,
             "bgm_options":               [k for k, p in config.BGM_MAP.items() if Path(str(p)).exists()],
+            "bg_template_options":       [k for k, p in config.BG_TEMPLATE_MAP.items() if Path(str(p)).exists()],
+            "api_key_hints": {
+                "typecast":   _mask_key(config.TYPECAST_API_KEY),
+                "elevenlabs": _mask_key(config.ELEVENLABS_API_KEY),
+            },
         },
     )
 
@@ -140,6 +200,9 @@ async def news_search_api(req: NewsSearchRequest):
 
 @app.post("/api/youtube-upload")
 async def youtube_upload_api(req: YouTubeUploadRequest):
+    """즉시 업로드 트리거 — store 에 record 생성 후 백그라운드 실행."""
+    from pipeline import upload_store
+
     file_path = config.OUTPUT_DIR / req.filename
     if not file_path.exists():
         return {"error": f"파일을 찾을 수 없어요: {req.filename}"}
@@ -148,8 +211,351 @@ async def youtube_upload_api(req: YouTubeUploadRequest):
         "status": "queued", "progress": 0,
         "message": "YouTube 업로드 준비 중...", "output": None, "error": None,
     }
-    threading.Thread(target=_run_youtube_upload, args=(job_id, file_path, req), daemon=True).start()
-    return {"job_id": job_id}
+    rec = upload_store.add_immediate(
+        filename=req.filename,
+        title=req.title,
+        description=req.description,
+        tags=req.tags,
+        category_id=req.category_id,
+        privacy_status=req.privacy_status,
+        made_for_kids=req.made_for_kids,
+        job_id=job_id,
+    )
+    threading.Thread(
+        target=_run_youtube_upload,
+        args=(job_id, file_path, req),
+        kwargs={"record_id": rec["id"]},
+        daemon=True,
+    ).start()
+    return {"job_id": job_id, "record_id": rec["id"]}
+
+
+# ── Upload store read APIs (Phase 2) ─────────────────────────────────────────
+
+@app.get("/api/uploads")
+async def list_uploads_api(status: Optional[str] = None):
+    """업로드 레코드 전체 리스트. ?status=scheduled|uploading|done|failed|cancelled 로 필터."""
+    from pipeline import upload_store
+    items = upload_store.list_by_status(status) if status else upload_store.list_all()
+    items_sorted = sorted(
+        items,
+        key=lambda it: it.get("scheduled_at") or it.get("created_at") or "",
+        reverse=True,
+    )
+    return {"items": items_sorted, "count": len(items_sorted)}
+
+
+@app.get("/api/uploads/{record_id}")
+async def get_upload_api(record_id: str):
+    from pipeline import upload_store
+    rec = upload_store.get(record_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="record not found")
+    return rec
+
+
+@app.get("/api/output-files")
+async def list_output_files_api():
+    """output/ 안의 mp4 파일 리스트 (관리 탭의 새 예약 등록 폼에서 사용)."""
+    out_dir = config.OUTPUT_DIR
+    if not out_dir.exists():
+        return {"files": []}
+    files = []
+    for p in out_dir.glob("*.mp4"):
+        try:
+            stat = p.stat()
+        except OSError:
+            continue
+        files.append({
+            "filename": p.name,
+            "size":     stat.st_size,
+            "mtime":    stat.st_mtime,
+        })
+    files.sort(key=lambda f: f["mtime"], reverse=True)
+    return {"files": files}
+
+
+def _normalize_scheduled_at(raw: str) -> str:
+    """HTML5 datetime-local('YYYY-MM-DDTHH:MM') 또는 ISO 8601 입력을 KST tz-aware ISO 로 정규화.
+
+    - 'YYYY-MM-DDTHH:MM' / 'YYYY-MM-DDTHH:MM:SS' (tz 없음) → KST 로 가정
+    - 이미 tz 가 박혀있으면 그대로 유지
+    """
+    from pipeline.upload_store import KST, parse_iso
+
+    if not raw or not isinstance(raw, str):
+        raise ValueError("scheduled_at 이 비어있어요")
+    s = raw.strip()
+    dt = parse_iso(s)
+    if dt is None:
+        raise ValueError(f"scheduled_at 형식을 인식할 수 없어요: {raw}")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=KST)
+    return dt.isoformat(timespec="seconds")
+
+
+@app.post("/api/uploads/schedule")
+async def schedule_upload_api(req: ScheduleUploadRequest):
+    """예약 업로드 등록 — 영상 제작 탭 / 관리 탭 양쪽에서 호출."""
+    from pipeline import upload_store
+
+    file_path = config.OUTPUT_DIR / req.filename
+    if not file_path.exists():
+        return {"error": f"파일을 찾을 수 없어요: {req.filename}"}
+    try:
+        scheduled_iso = _normalize_scheduled_at(req.scheduled_at)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    rec = upload_store.add_scheduled(
+        filename=req.filename,
+        title=req.title,
+        description=req.description,
+        tags=req.tags,
+        category_id=req.category_id,
+        privacy_status=req.privacy_status,
+        made_for_kids=req.made_for_kids,
+        scheduled_at=scheduled_iso,
+    )
+    return {"record": rec}
+
+
+@app.post("/api/uploads/{record_id}/upload-now")
+async def upload_now_api(record_id: str):
+    """예약 항목을 즉시 업로드로 트리거 (또는 failed 항목 재시도)."""
+    from pipeline import upload_store
+
+    rec = upload_store.get(record_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="record not found")
+    if rec.get("status") not in ("scheduled", "failed", "cancelled"):
+        return {"error": f"현재 상태({rec.get('status')})에서는 즉시 업로드할 수 없어요"}
+
+    file_path = config.OUTPUT_DIR / rec["filename"]
+    if not file_path.exists():
+        upload_store.mark_failed(record_id, error=f"파일 없음: {rec['filename']}")
+        return {"error": f"파일을 찾을 수 없어요: {rec['filename']}"}
+
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {
+        "status": "queued", "progress": 0,
+        "message": "YouTube 업로드 준비 중...", "output": None, "error": None,
+    }
+    upload_store.update(record_id, status="uploading", job_id=job_id, error=None)
+    req = YouTubeUploadRequest(
+        filename=rec["filename"],
+        title=rec["title"],
+        description=rec.get("description") or "",
+        tags=rec.get("tags") or [],
+        category_id=rec.get("category_id") or "28",
+        privacy_status=rec.get("privacy_status") or "private",
+        made_for_kids=bool(rec.get("made_for_kids")),
+    )
+    threading.Thread(
+        target=_run_youtube_upload,
+        args=(job_id, file_path, req),
+        kwargs={"record_id": record_id},
+        daemon=True,
+    ).start()
+    return {"job_id": job_id, "record_id": record_id}
+
+
+@app.patch("/api/uploads/{record_id}")
+async def patch_upload_api(record_id: str, patch: UploadPatchRequest):
+    """예약 항목 부분 수정 — status='scheduled' 일 때만 허용."""
+    from pipeline import upload_store
+
+    rec = upload_store.get(record_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="record not found")
+    if rec.get("status") != "scheduled":
+        return {"error": f"현재 상태({rec.get('status')})에서는 수정할 수 없어요"}
+
+    fields = patch.model_dump(exclude_unset=True, exclude_none=True)
+    if "scheduled_at" in fields:
+        try:
+            fields["scheduled_at"] = _normalize_scheduled_at(fields["scheduled_at"])
+        except ValueError as e:
+            return {"error": str(e)}
+    if not fields:
+        return {"error": "변경할 항목이 없어요"}
+    updated = upload_store.update(record_id, **fields)
+    return {"record": updated}
+
+
+@app.delete("/api/uploads/{record_id}")
+async def delete_upload_api(record_id: str):
+    """레코드 영구 삭제. 업로드 진행 중인 항목은 차단."""
+    from pipeline import upload_store
+
+    rec = upload_store.get(record_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="record not found")
+    if rec.get("status") == "uploading":
+        return {"error": "업로드 진행 중인 항목은 삭제할 수 없어요"}
+    upload_store.delete(record_id)
+    return {"deleted": True, "id": record_id}
+
+
+# ── Scheduler dispatcher (Phase 3) ───────────────────────────────────────────
+
+def _dispatch_scheduled_upload(rec: dict) -> None:
+    """폴러가 due 항목을 발견했을 때 호출되는 콜백.
+    업로드 백그라운드 스레드를 띄우고 즉시 반환. record 는 이미 status='uploading' 상태.
+    """
+    from pipeline import upload_store
+
+    file_path = config.OUTPUT_DIR / rec["filename"]
+    if not file_path.exists():
+        upload_store.mark_failed(rec["id"], error=f"파일 없음: {rec['filename']}")
+        return
+
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {
+        "status": "queued", "progress": 0,
+        "message": f"예약 업로드 시작 — {rec.get('title','')[:30]}",
+        "output": None, "error": None,
+    }
+    upload_store.update(rec["id"], job_id=job_id)
+
+    req = YouTubeUploadRequest(
+        filename=rec["filename"],
+        title=rec["title"],
+        description=rec.get("description") or "",
+        tags=rec.get("tags") or [],
+        category_id=rec.get("category_id") or "28",
+        privacy_status=rec.get("privacy_status") or "private",
+        made_for_kids=bool(rec.get("made_for_kids")),
+    )
+    threading.Thread(
+        target=_run_youtube_upload,
+        args=(job_id, file_path, req),
+        kwargs={"record_id": rec["id"]},
+        daemon=True,
+    ).start()
+
+
+@app.on_event("startup")
+async def _startup_uploads() -> None:
+    """재시작 복구 + 스케줄러/통계 폴러 시동."""
+    from pipeline import upload_store, upload_scheduler, stats_poller
+
+    n = upload_store.mark_uploading_as_failed_on_startup()
+    if n:
+        print(f"[startup] {n} 건의 끊긴 업로드를 'failed' 로 마킹했어요")
+    upload_scheduler.start(_dispatch_scheduled_upload, interval_s=60)
+    print("[startup] upload-scheduler 데몬 기동 (60초 주기)")
+    stats_poller.start(interval_s=30 * 60)
+    print("[startup] stats-poller 데몬 기동 (30분 주기)")
+
+
+@app.post("/api/uploads/{record_id}/refresh-stats")
+async def refresh_stats_api(record_id: str):
+    """단일 항목 통계 강제 갱신."""
+    from pipeline import upload_store
+    from pipeline.youtube_publisher import fetch_video_stats
+
+    rec = upload_store.get(record_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="record not found")
+    if rec.get("status") != "done" or not rec.get("video_id"):
+        return {"error": "업로드가 완료된 항목만 통계를 가져올 수 있어요"}
+
+    try:
+        stats_map = await asyncio.to_thread(fetch_video_stats, [rec["video_id"]])
+    except Exception as e:
+        return {"error": str(e)}
+    s = stats_map.get(rec["video_id"])
+    if not s:
+        return {"error": "통계를 가져오지 못했어요 (영상이 비공개거나 삭제됐을 수 있어요)"}
+    fetched_at = upload_store.now_iso()
+    updated = upload_store.update(record_id, stats=s, stats_fetched_at=fetched_at)
+    return {"record": updated}
+
+
+@app.post("/api/stats/refresh-all")
+async def refresh_stats_all_api():
+    """전체 done 항목 통계 일괄 갱신 (관리 탭의 '🔄 통계 새로고침' 버튼)."""
+    from pipeline import stats_poller
+    summary = await asyncio.to_thread(stats_poller.refresh_once)
+    return summary
+
+
+# ── Telegram 알림 (Phase 7) ─────────────────────────────────────────────────
+
+@app.get("/api/telegram/status")
+async def telegram_status_api():
+    """관리 탭 토글에서 사용 — 설정 여부와 활성 상태 반환."""
+    from pipeline import notifier
+    return notifier.status_summary()
+
+
+@app.post("/api/uploads/{record_id}/notify")
+async def notify_record_api(record_id: str):
+    """수동 재전송 — 이미 발송된 항목도 다시 보냄."""
+    from pipeline import upload_store, notifier
+
+    rec = upload_store.get(record_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="record not found")
+    if not notifier.is_enabled():
+        return {"error": "Telegram 알림이 비활성화 상태예요 (설정 또는 자동비활성)"}
+
+    if rec.get("status") == "done":
+        ok = await asyncio.to_thread(notifier.notify_upload_success, rec)
+    elif rec.get("status") == "failed":
+        ok = await asyncio.to_thread(notifier.notify_upload_failed, rec)
+    else:
+        return {"error": f"현재 상태({rec.get('status')})는 알림 대상이 아니에요"}
+    if ok:
+        upload_store.update(record_id, telegram_notified=True)
+        return {"sent": True}
+    return {"error": "Telegram 발송 실패 (서버 로그 확인)"}
+
+
+@app.post("/api/config/api-key")
+async def update_api_key(req: ApiKeyUpdateRequest):
+    import tempfile
+    import os as _os
+
+    key_map = {"typecast": "TYPECAST_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}
+    if req.provider not in key_map:
+        return {"error": "provider 값이 올바르지 않아요 (typecast | elevenlabs)"}
+
+    env_var = key_map[req.provider]
+    env_path = config.ENV_FILE
+
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    except FileNotFoundError:
+        lines = []
+
+    new_line = f"{env_var}={req.api_key}\n"
+    found = False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith(env_var + "="):
+            lines[i] = new_line
+            found = True
+            break
+    if not found:
+        lines.append(new_line)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(env_path.parent), suffix=".tmp")
+    try:
+        with _os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        _os.replace(tmp_path, str(env_path))
+    except Exception as e:
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+    _os.environ[env_var] = req.api_key
+    setattr(config, env_var, req.api_key)
+
+    return {"ok": True, "provider": req.provider, "masked": _mask_key(req.api_key)}
 
 
 @app.post("/api/tts-preview")
@@ -340,6 +746,50 @@ async def _debug_character():
     return info
 
 
+def _add_audio_to_preview(url: str, start: float, end: float, video_path) -> None:
+    """미리보기 mp4에 오디오 트랙이 없으면 yt-dlp로 추가한다."""
+    import subprocess
+    from pathlib import Path as _P
+    vp = _P(video_path)
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(vp)],
+        capture_output=True, text=True, timeout=10
+    )
+    if probe.stdout.strip():
+        return  # 이미 오디오 있음
+    section = f"*{start:.2f}-{end:.2f}"
+    audio_base = vp.parent / f"{vp.stem}_tmpa"
+    merged = vp.parent / f"{vp.stem}_mg.mp4"
+    try:
+        subprocess.run(
+            ["yt-dlp", "--no-continue", "--force-overwrites",
+             "--socket-timeout", "15", "--retries", "2", "--fragment-retries", "2",
+             "--download-sections", section,
+             "-f", "bestaudio[ext=m4a]/bestaudio",
+             "-o", str(audio_base) + ".%(ext)s", url],
+            capture_output=True, text=True, timeout=90
+        )
+        audio_files = list(vp.parent.glob(f"{vp.stem}_tmpa.*"))
+        if not audio_files:
+            return
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error",
+             "-i", str(vp), "-i", str(audio_files[0]),
+             "-c:v", "copy", "-c:a", "aac", str(merged)],
+            capture_output=True, text=True, timeout=60
+        )
+        if r.returncode == 0 and merged.exists() and merged.stat().st_size > 0:
+            merged.replace(vp)
+    except Exception:
+        pass
+    finally:
+        for f in vp.parent.glob(f"{vp.stem}_tmpa.*"):
+            f.unlink(missing_ok=True)
+        if merged.exists():
+            merged.unlink(missing_ok=True)
+
+
 @app.post("/api/preview-clip")
 async def preview_clip_api(req: PreviewClipRequest):
     from pipeline.multiclip import normalize_media_url, parse_time, prepare_preview
@@ -352,6 +802,7 @@ async def preview_clip_api(req: PreviewClipRequest):
         if end - start > 60:
             return {"error": "한 컷 최대 60초까지"}
         info = await asyncio.to_thread(prepare_preview, url, start, end)
+        await asyncio.to_thread(_add_audio_to_preview, url, start, end, info["video"])
         return {
             "clip_id":   info["clip_id"],
             "duration":  info["duration"],
@@ -366,6 +817,54 @@ async def preview_clip_api(req: PreviewClipRequest):
         return {"error": f"미리보기 실패: {e}"}
     except Exception as e:
         return {"error": f"미리보기 실패: {e}"}
+
+
+@app.post("/api/preview-clip2")
+async def preview_clip2_api(req: PreviewClipRequest):
+    from pipeline.multiclip import normalize_media_url, parse_time, prepare_preview2
+    try:
+        url = normalize_media_url(req.url)
+        start = parse_time(req.start)
+        end = parse_time(req.end)
+        if end <= start:
+            return {"error": "End time must be greater than start time."}
+        if end - start > 60:
+            return {"error": "Clip sections can be at most 60 seconds."}
+        info = await asyncio.to_thread(prepare_preview2, url, start, end)
+        return {
+            "clip_id": info["clip_id"],
+            "duration": info["duration"],
+            "video_url": f"/api/preview2-asset/{info['clip_id']}/video",
+            "thumb_url": None if info.get("thumb") is None else f"/api/preview2-asset/{info['clip_id']}/thumb",
+            "has_audio": bool(info.get("has_audio")),
+        }
+    except ValueError as e:
+        return {"error": str(e)}
+    except RuntimeError as e:
+        message = str(e)
+        if "yt-dlp" in message:
+            message = "Preview2 download failed. Please check the URL, visibility, and section times."
+        return {"error": message}
+    except Exception as e:
+        return {"error": f"Preview2 failed: {e}"}
+
+
+@app.get("/api/preview2-asset/{clip_id}/{kind}")
+async def preview2_asset(clip_id: str, kind: str):
+    from pipeline.multiclip import PREVIEW2_DIR
+    safe = "".join(c for c in clip_id if c.isalnum())[:20]
+    if kind == "video":
+        path = PREVIEW2_DIR / f"{safe}.mp4"
+        media = "video/mp4"
+    elif kind == "thumb":
+        path = PREVIEW2_DIR / f"{safe}.jpg"
+        media = "image/jpeg"
+    else:
+        return {"error": "kind must be video or thumb"}
+    if not path.exists():
+        return {"error": "asset not found"}
+    return FileResponse(str(path), media_type=media,
+                        headers={"Cache-Control": "public, max-age=300"})
 
 
 @app.get("/api/preview-asset/{clip_id}/{kind}")
@@ -490,6 +989,7 @@ def _run_multi_pipeline(job_id: str, req: MultiRenderRequest) -> None:
             pill_text=req.pill,
             clipless=False,
             hook_accent_color=req.hook_accent_color,
+            bg_template=req.bg_template,
         )
 
         if len(downloaded) == 1:
@@ -558,11 +1058,152 @@ def _run_multi_pipeline(job_id: str, req: MultiRenderRequest) -> None:
         })
 
 
+# ── 영상 제작2: 단일 클립 + 원본 오디오 ─────────────────────────────────────
+
+@app.post("/api/render-single2")
+async def render_single2_api(req: SingleClipRenderRequest):
+    if not req.clip_url.strip():
+        return {"error": "클립 URL을 입력해주세요"}
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {
+        "status": "queued", "progress": 0, "message": "준비 중...",
+        "output": None, "error": None, "script": None,
+    }
+    threading.Thread(target=_run_single2_pipeline, args=(job_id, req), daemon=True).start()
+    return {"job_id": job_id}
+
+
+def _run_single2_pipeline(job_id: str, req: SingleClipRenderRequest) -> None:
+    def upd(progress: int, message: str):
+        jobs[job_id].update({"status": "running", "progress": progress, "message": message})
+
+    try:
+        import math
+        from pipeline.multiclip import parse_time, prepare_preview2
+        from pipeline.tts import generate_tts, get_confirmed_tts
+        from pipeline.subtitle import generate_chunk_ass, chunk_narration
+        from pipeline.editor import create_background_frame, compose_video
+        from pipeline.script_generator import normalize_script_shape
+
+        config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # 1) 스크립트 + TTS
+        upd(8, "스크립트 확인 중...")
+        script = dict(req.script or {})
+        if (req.hook or "").strip():
+            script["hook"] = req.hook.strip()
+        script = normalize_script_shape(script)
+        hook_text = script["hook"]
+
+        tts_path = None
+        tts_duration = None
+        words = []
+        if req.use_tts:
+            narration = script["narration"]
+            if not narration:
+                raise ValueError("나레이션을 먼저 생성하거나 입력해주세요")
+            if req.confirmed_tts_id:
+                upd(18, f"확정 TTS 불러오는 중... [{req.provider}]")
+                tts_path, tts_duration, words = get_confirmed_tts(
+                    narration, req.confirmed_tts_id,
+                    provider=req.provider, voice_id=req.voice_id,
+                )
+            else:
+                upd(18, f"음성(TTS) 생성 중... [{req.provider}]")
+                tts_path, tts_duration, words = generate_tts(
+                    narration, provider=req.provider, voice_id=req.voice_id,
+                )
+
+        # 2) 클립 다운로드 (오디오 포함)
+        upd(35, "클립 다운로드 중...")
+        start = parse_time(req.clip_start)
+        end   = parse_time(req.clip_end)
+        if end <= start:
+            raise ValueError("종료 시간이 시작 시간보다 커야 해요")
+        info = prepare_preview2(req.clip_url, start, end)
+        clip_path = info["video"]
+        clip_duration = info["duration"]
+
+        if tts_duration is not None:
+            video_duration = max(1, int(math.ceil(tts_duration)) + 2)
+            if clip_duration + 0.15 < video_duration:
+                raise ValueError(
+                    f"클립 길이 {clip_duration:.1f}초가 TTS 기준 길이 {video_duration:.1f}초보다 짧아요"
+                )
+        else:
+            video_duration = max(1, int(math.ceil(clip_duration)))
+
+        # 3) 배경 PNG
+        upd(55, "타이틀 블록 생성 중...")
+        bg_path = create_background_frame(
+            hook_text,
+            pill_text=req.pill,
+            clipless=False,
+            hook_accent_color=req.hook_accent_color,
+            bg_template=req.bg_template,
+        )
+
+        # 4) 자막
+        upd(68, "자막 생성 중...")
+        if req.use_tts and words:
+            raw_subs = script.get("subtitles") or []
+            chunks = [str(s["text"] if isinstance(s, dict) else s).replace(".", "").strip() for s in raw_subs]
+            chunks = [c for c in chunks if c]
+            if not chunks:
+                chunks = chunk_narration(script["narration"])
+            ass_path = generate_chunk_ass(
+                chunks, words, tts_duration,
+                highlight_color=req.subtitle_color,
+            )
+        else:
+            ass_path = generate_chunk_ass([], [], 0, highlight_color=req.subtitle_color)
+
+        bgm_off = str(req.bgm or "").lower() == "off"
+        bgm_path = config.BGM_MAP.get(req.bgm, config.BGM_FALLBACK)
+        if not Path(str(bgm_path)).exists():
+            bgm_path = config.BGM_FALLBACK
+
+        # 5) 최종 합성 (클립 오디오 포함)
+        upd(80, "최종 영상 합성 중...")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        keyword = re.sub(r'[\\/:*?"<>|]', "", hook_text[:20]).replace(" ", "_") or "single2"
+        out_path = config.OUTPUT_DIR / f"{ts}_{keyword}.mp4"
+
+        provider_key = (req.provider or "typecast").lower()
+        voice_gain = config.TTS_VOICE_GAIN.get(provider_key, config.TTS_VOICE_GAIN["typecast"])
+        compose_video(
+            clip_path,
+            bg_path=bg_path,
+            ass_path=ass_path,
+            output_path=out_path,
+            bgm_path=bgm_path,
+            tts_path=tts_path,
+            duration=video_duration,
+            voice_gain=voice_gain,
+            bgm_volume=0.0 if bgm_off else None,
+            clip_volume=req.clip_volume,
+        )
+        jobs[job_id].update({
+            "status": "done", "progress": 100,
+            "message": "완료!", "output": out_path.name, "error": None, "script": script,
+        })
+    except Exception as e:
+        message = str(e)
+        if "yt-dlp" in message:
+            message = "영상 다운로드 실패: URL, 공개 여부, 구간 시간을 확인해주세요."
+        jobs[job_id].update({
+            "status": "error", "progress": 100,
+            "message": message, "error": message,
+        })
+
+
 @app.get("/api/template-preview")
 async def template_preview(
     pill: str = "",
     hook: str = "",
     hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT,
+    bg_template: str = "bg_purple",
 ):
     from pipeline.editor import create_template_preview
     hook_text = hook.strip() or "훅 텍스트|강조 한 줄"
@@ -571,6 +1212,7 @@ async def template_preview(
         hook_text,
         pill_text=pill_text,
         hook_accent_color=hook_accent_color,
+        bg_template=bg_template,
     )
     return FileResponse(
         str(path),
@@ -584,6 +1226,7 @@ async def template_preview_window(
     pill: str = "",
     hook: str = "",
     hook_accent_color: str = config.HOOK_ACCENT_COLOR_DEFAULT,
+    bg_template: str = "bg_purple",
     t: str = "",
 ):
     """모바일 폰 크기 새 창으로 띄우는 PNG 뷰어 페이지."""
@@ -593,6 +1236,7 @@ async def template_preview_window(
             "pill": pill,
             "hook": hook,
             "hook_accent_color": hook_accent_color,
+            "bg_template": bg_template,
             "t": t,
         },
         encoding="utf-8",
@@ -665,6 +1309,7 @@ def _run_pipeline(job_id: str, req: RenderRequest):
             pill_text=req.pill,
             clipless=(clip_path is None),
             hook_accent_color=req.hook_accent_color,
+            bg_template=req.bg_template,
         )
 
         upd(72, "자막 생성 중...")
@@ -703,15 +1348,26 @@ def _run_pipeline(job_id: str, req: RenderRequest):
         jobs[job_id].update({"status": "error", "progress": 0, "message": str(e)})
 
 
-def _run_youtube_upload(job_id: str, file_path: Path, req: YouTubeUploadRequest) -> None:
+def _run_youtube_upload(
+    job_id: str,
+    file_path: Path,
+    req: YouTubeUploadRequest,
+    *,
+    record_id: Optional[str] = None,
+) -> None:
+    """업로드 백그라운드 워커. job(SSE) + store(영속) 양쪽 동시 갱신 + Telegram 알림."""
     from pipeline.youtube_publisher import upload_video
+    from pipeline import upload_store, notifier
 
     def cb(p: float):
+        pct = int(min(100, max(0, p * 100)))
         jobs[job_id].update({
             "status":   "running",
-            "progress": int(min(100, max(0, p * 100))),
-            "message":  f"YouTube 전송 중... {int(p*100)}%",
+            "progress": pct,
+            "message":  f"YouTube 전송 중... {pct}%",
         })
+        if record_id:
+            upload_store.update_progress(record_id, pct)
 
     try:
         cb(0.0)
@@ -731,8 +1387,24 @@ def _run_youtube_upload(job_id: str, file_path: Path, req: YouTubeUploadRequest)
             "video_id":  result["video_id"],
             "video_url": result["url"],
         })
+        if record_id:
+            updated = upload_store.mark_done(
+                record_id,
+                video_id=result["video_id"],
+                video_url=result["url"],
+            )
+            if updated and notifier.is_enabled():
+                ok = notifier.notify_upload_success(updated)
+                if ok:
+                    upload_store.update(record_id, telegram_notified=True)
     except Exception as e:
         jobs[job_id].update({"status": "error", "progress": 0, "message": str(e)})
+        if record_id:
+            updated = upload_store.mark_failed(record_id, error=str(e))
+            if updated and notifier.is_enabled():
+                ok = notifier.notify_upload_failed(updated)
+                if ok:
+                    upload_store.update(record_id, telegram_notified=True)
 
 
 _FALLBACK_GIF_KEYWORDS = ["mind blown", "wow", "shocked", "amazing", "no way"]

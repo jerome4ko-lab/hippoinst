@@ -18,7 +18,12 @@ from googleapiclient.http import MediaFileUpload
 import config
 
 
-_SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# 업로드(youtube.upload) + 통계 조회(youtube.readonly) 둘 다 필요.
+# scope 변경 후엔 기존 refresh_token 이 무효화 → tools/youtube_authorize.py 재실행 필요.
+_SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.readonly",
+]
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 # YouTube category IDs — KR 기준 자주 쓰는 것
@@ -111,3 +116,44 @@ def upload_video(
         "video_id": video_id,
         "url":      f"https://www.youtube.com/watch?v={video_id}",
     }
+
+
+# ── Read API: video statistics (Phase 6) ─────────────────────────────────────
+
+def fetch_video_stats(video_ids: list[str]) -> dict[str, dict]:
+    """video_id → {viewCount, likeCount, commentCount, favoriteCount} 매핑.
+
+    YouTube API 는 한 호출에 최대 50개 ID 까지. 이 함수는 자동으로 배치 분할.
+    실패한 ID 는 결과에 포함되지 않음 (조용히 누락).
+    """
+    if not video_ids:
+        return {}
+
+    yt = _yt_client()
+    out: dict[str, dict] = {}
+    for i in range(0, len(video_ids), 50):
+        batch = [vid for vid in video_ids[i:i + 50] if vid]
+        if not batch:
+            continue
+        try:
+            resp = yt.videos().list(
+                part="statistics",
+                id=",".join(batch),
+                maxResults=50,
+            ).execute()
+        except HttpError as e:
+            msg = getattr(e, "_get_reason", lambda: str(e))()
+            raise RuntimeError(f"YouTube API 오류 (videos.list): {msg}") from e
+
+        for item in resp.get("items", []):
+            vid = item.get("id")
+            stats = item.get("statistics") or {}
+            if not vid:
+                continue
+            out[vid] = {
+                "viewCount":     int(stats.get("viewCount") or 0),
+                "likeCount":     int(stats.get("likeCount") or 0),
+                "commentCount":  int(stats.get("commentCount") or 0),
+                "favoriteCount": int(stats.get("favoriteCount") or 0),
+            }
+    return out

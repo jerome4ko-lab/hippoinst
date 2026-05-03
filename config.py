@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR    = Path(__file__).parent
+ENV_FILE    = BASE_DIR / ".env"
 ASSETS_DIR  = BASE_DIR / "assets"
 OUTPUT_DIR  = BASE_DIR / "output"
 TEMP_DIR    = BASE_DIR / "temp"
@@ -16,6 +17,14 @@ BGM_MAP = {
     "bgm_future": BGM_DIR / "bgm_future.mp3",
 }
 BGM_FALLBACK = BGM_DIR / "bgm_light.mp3"
+
+BG_TEMPLATE_DIR = ASSETS_DIR / "bg_template"
+BG_TEMPLATE_MAP = {
+    "bg_purple": BG_TEMPLATE_DIR / "bg_purple.png",
+    "bg_white":  BG_TEMPLATE_DIR / "bg_white.png",
+    "bg_green":  BG_TEMPLATE_DIR / "bg_green.png",
+}
+BG_TEMPLATE_FALLBACK = BG_TEMPLATE_DIR / "bg_purple.png"
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL      = "claude-sonnet-4-6"
@@ -29,6 +38,51 @@ TYPECAST_MODEL    = os.getenv("TYPECAST_MODEL", "ssfm-v21")
 
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "typecast")  # elevenlabs | typecast
 
+TTS_UI_VOICES = [
+    {
+        "id": "sehun",
+        "label": "세헌",
+        "provider": "typecast",
+        "voice_id": "tc_68662745779b66ba84fc4d84",
+        "default": False,
+    },
+    {
+        "id": "jegyeong",
+        "label": "재경",
+        "provider": "typecast",
+        "voice_id": "tc_6731b38f075b04a944644218",
+        "default": False,
+    },
+    {
+        "id": "ian",
+        "label": "이안",
+        "provider": "typecast",
+        "voice_id": "tc_62d66c3ef075c6ebd4114bd5",
+        "default": True,
+    },
+    {
+        "id": "hippo",
+        "label": "힙포",
+        "provider": "elevenlabs",
+        "voice_id": "GjAFM8kzPSGy5u1riGO9",
+        "default": False,
+    },
+    {
+        "id": "parkjun",
+        "label": "박준",
+        "provider": "elevenlabs",
+        "voice_id": "7Nah3cbXKVmGX7gQUuwz",
+        "default": False,
+    },
+    {
+        "id": "mrk",
+        "label": "Mr.K",
+        "provider": "elevenlabs",
+        "voice_id": "sQ3a15DhENXU8pKTHlcc",
+        "default": False,
+    },
+]
+
 KLIPY_API_KEY     = os.getenv("KLIPY_API_KEY", "")
 KLIPY_CUSTOMER_ID = os.getenv("KLIPY_CUSTOMER_ID", "hippoinst")
 
@@ -36,6 +90,13 @@ KLIPY_CUSTOMER_ID = os.getenv("KLIPY_CUSTOMER_ID", "hippoinst")
 YOUTUBE_CLIENT_ID     = os.getenv("YOUTUBE_CLIENT_ID", "")
 YOUTUBE_CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
 YOUTUBE_REFRESH_TOKEN = os.getenv("YOUTUBE_REFRESH_TOKEN", "")
+
+# Telegram 알림 — 업로드 성공·실패 시 봇이 메시지 발송
+# 1) BotFather 로 봇 만들고 토큰 받기
+# 2) 봇과 1회 대화 시작 → https://api.telegram.org/bot<TOKEN>/getUpdates 에서 chat.id 확인
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_NOTIFY    = os.getenv("TELEGRAM_NOTIFY", "1") not in ("0", "false", "False", "no", "off")
 
 VIDEO_WIDTH    = 1080
 VIDEO_HEIGHT   = 1920
@@ -55,8 +116,8 @@ CLIP_FEATHER_PX = 15
 # y=0~170 (170px)은 상단 검정 여백 — YouTube 상단 UI(헤더/탭) 회피
 PILL_Y   = 200;  PILL_H   = 80    # 노란 알약(부제) 슬롯
 TITLE_Y  = 170;  TITLE_H  = 380   # 검정 타이틀 블록
-CLIP_Y   = 530;  CLIP_H   = 810   # 클립 4:3 (1080×810)
-SUB_Y    = 1360; SUB_H    = 200   # 자막 띠 (클립 아래)
+CLIP_Y   = 520;  CLIP_H   = 810   # 클립 4:3 (1080×810)
+SUB_Y    = 1345; SUB_H    = 200   # 자막 띠 (클립 아래)
 # y=1560~1920 (360px)은 하단 검정 여백.
 # 미리보기에선 YouTube 모바일 UI 가상 오버레이가 들어감.
 
@@ -67,7 +128,7 @@ FONT_REGULAR = str(ASSETS_DIR / "font_regular.ttf")
 SUBTITLE_FONT      = "Gmarket Sans TTF"  # ASS face name
 SUBTITLE_FONT_SIZE = 58
 SUBTITLE_PHRASES   = 4
-SUBTITLE_X_OFFSET  = -23                 # px (음수 = 왼쪽 이동)
+SUBTITLE_X_OFFSET  = -38                 # px (음수 = 왼쪽 이동)
 
 HOOK_ACCENT_COLOR_DEFAULT = "#F0C040"
 HOOK_ACCENT_COLOR_PRESETS = {
@@ -82,6 +143,12 @@ TTS_SPEED = 1.2   # 1.0 = 기본, 1.2 = 20% 빠르게
 TTS_VOICE_GAIN = {
     "elevenlabs": 4.0,   # 원본이 약간 작으므로 4배 부스트
     "typecast":   2.0,   # Typecast는 원본이 큰 편이지만 BGM ducking 후 명료도 우선
+}
+TTS_VOICE_ID_GAIN = {
+    # ElevenLabs raw output leveling: Hippo is the reference loudness.
+    "GjAFM8kzPSGy5u1riGO9": 1.0,
+    "7Nah3cbXKVmGX7gQUuwz": 25.6,   # 박준 -20%
+    "sQ3a15DhENXU8pKTHlcc": 14.4,   # Mr.K -20%
 }
 BGM_VOLUME           = 0.22   # TTS가 있을 때: 음성이 묻히지 않게 낮게 유지
 BGM_VOLUME_NO_VOICE  = 1.00   # TTS 없을 때

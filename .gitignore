@@ -7,6 +7,9 @@ temp/
 output/
 *.mp4
 
+# 업로드 스토어 (런타임 상태 — 영속 데이터지만 머신 로컬)
+data/
+
 # YouTube OAuth secrets (never commit)
 tools/client_secret.json
 tools/token.json

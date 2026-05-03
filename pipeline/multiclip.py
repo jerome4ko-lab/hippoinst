@@ -22,6 +22,7 @@ ALLOWED_TRANSITIONS = {
 TRANSITION_DUR = 0.4   # 초
 
 PREVIEW_DIR = config.TEMP_DIR / "preview"
+PREVIEW2_DIR = config.TEMP_DIR / "preview2"
 DOWNLOAD_TIMEOUT_SEC = 90
 THUMBNAIL_TIMEOUT_SEC = 20
 
@@ -90,20 +91,177 @@ def download_section(url: str, start: float, end: float, out_path: Path) -> Path
         raise ValueError(f"end({end})는 start({start})보다 커야 합니다")
 
     section = f"*{start:.2f}-{end:.2f}"
+    stem = out_path.stem
+    parent = out_path.parent
+
+    import datetime
+    log_path = parent / f"{stem}_debug.log"
+    def dbg(msg):
+        ts = datetime.datetime.now().strftime("%H:%M:%S.%f")
+        line = f"[{ts}] {msg}"
+        print(line, flush=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+    dbg(f"start url={url[:60]} section={section}")
+
+    # 1. 비디오 다운로드
     _run([
-        "yt-dlp",
-        "--no-continue",
-        "--force-overwrites",
-        "--socket-timeout", "15",
-        "--retries", "2",
-        "--fragment-retries", "2",
+        "yt-dlp", "--no-continue", "--force-overwrites",
+        "--socket-timeout", "15", "--retries", "2", "--fragment-retries", "2",
         "--download-sections", section,
         "-f", "bestvideo[ext=mp4][height<=1080]/bestvideo[ext=mp4]/bestvideo",
-        "-o", str(out_path),
+        "-o", str(parent / f"{stem}_v.%(ext)s"),
         url,
     ], timeout=DOWNLOAD_TIMEOUT_SEC)
+    video_files = list(parent.glob(f"{stem}_v.*"))
+    video_tmp = video_files[0] if video_files else None
+    dbg(f"video_files={video_files} video_tmp={video_tmp}")
+
+    # 2. 오디오 다운로드
+    audio_tmp = None
+    try:
+        _run([
+            "yt-dlp", "--no-continue", "--force-overwrites",
+            "--socket-timeout", "15", "--retries", "2", "--fragment-retries", "2",
+            "--download-sections", section,
+            "-f", "bestaudio[ext=m4a]/bestaudio",
+            "-o", str(parent / f"{stem}_a.%(ext)s"),
+            url,
+        ], timeout=DOWNLOAD_TIMEOUT_SEC)
+        audio_files = list(parent.glob(f"{stem}_a.*"))
+        audio_tmp = audio_files[0] if audio_files else None
+        dbg(f"audio_files={audio_files} audio_tmp={audio_tmp}")
+    except Exception as e:
+        dbg(f"오디오 다운로드 실패: {e}")
+
+    # 3. 병합 또는 비디오만 사용
+    try:
+        if video_tmp and audio_tmp:
+            dbg("ffmpeg 병합 시작")
+            _run([
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-i", str(video_tmp), "-i", str(audio_tmp),
+                "-c:v", "copy", "-c:a", "aac",
+                str(out_path),
+            ])
+            dbg("ffmpeg 병합 완료")
+        elif video_tmp:
+            dbg("오디오 없음 - 비디오만 사용")
+            video_tmp.replace(out_path)
+    finally:
+        if video_tmp: video_tmp.unlink(missing_ok=True)
+        if audio_tmp: audio_tmp.unlink(missing_ok=True)
+
     if not out_path.exists() or out_path.stat().st_size == 0:
         raise RuntimeError(f"yt-dlp 다운로드 실패: {url} {section}")
+    return out_path
+
+
+def _probe_stream(path: Path, selector: str) -> bool:
+    path = Path(path)
+    if not path.exists() or path.stat().st_size <= 0:
+        return False
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", selector,
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def has_audio_stream(path: Path) -> bool:
+    return _probe_stream(path, "a:0")
+
+
+def has_video_stream(path: Path) -> bool:
+    return _probe_stream(path, "v:0")
+
+
+def download_section_with_audio(url: str, start: float, end: float, out_path: Path) -> Path:
+    """Download a section for produce2 and require both video and audio streams."""
+    url = normalize_media_url(url)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if out_path.exists() and out_path.stat().st_size > 0:
+        if has_video_stream(out_path) and has_audio_stream(out_path):
+            return out_path
+        out_path.unlink(missing_ok=True)
+
+    if end <= start:
+        raise ValueError(f"end({end}) must be greater than start({start})")
+
+    section = f"*{start:.2f}-{end:.2f}"
+    stem = out_path.stem
+    parent = out_path.parent
+    video_pattern = parent / f"{stem}_v.%(ext)s"
+    audio_pattern = parent / f"{stem}_a.%(ext)s"
+    merged = parent / f"{stem}_merged.mp4"
+
+    for old in list(parent.glob(f"{stem}_v.*")) + list(parent.glob(f"{stem}_a.*")):
+        old.unlink(missing_ok=True)
+    merged.unlink(missing_ok=True)
+
+    _run([
+        "yt-dlp", "--no-continue", "--force-overwrites",
+        "--socket-timeout", "15", "--retries", "2", "--fragment-retries", "2",
+        "--download-sections", section,
+        "-f", "bestvideo[height<=1080]/bestvideo/best[height<=1080]/best",
+        "-o", str(video_pattern),
+        url,
+    ], timeout=DOWNLOAD_TIMEOUT_SEC)
+    video_files = list(parent.glob(f"{stem}_v.*"))
+    video_tmp = video_files[0] if video_files else None
+    if video_tmp is None:
+        raise RuntimeError("produce2 preview download failed: no video stream was downloaded")
+
+    try:
+        _run([
+            "yt-dlp", "--no-continue", "--force-overwrites",
+            "--socket-timeout", "15", "--retries", "2", "--fragment-retries", "2",
+            "--download-sections", section,
+            "-f", "bestaudio[ext=m4a]/bestaudio/best",
+            "-o", str(audio_pattern),
+            url,
+        ], timeout=DOWNLOAD_TIMEOUT_SEC)
+        audio_files = list(parent.glob(f"{stem}_a.*"))
+        audio_tmp = audio_files[0] if audio_files else None
+        if audio_tmp is None:
+            raise RuntimeError("produce2 preview download failed: no audio stream was downloaded")
+
+        _run([
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", str(video_tmp), "-i", str(audio_tmp),
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            "-movflags", "+faststart",
+            str(merged),
+        ], timeout=120)
+
+        if not has_video_stream(merged) or not has_audio_stream(merged):
+            raise RuntimeError("produce2 preview mux failed: output is missing video or audio")
+        merged.replace(out_path)
+    finally:
+        for f in list(parent.glob(f"{stem}_v.*")) + list(parent.glob(f"{stem}_a.*")):
+            f.unlink(missing_ok=True)
+        merged.unlink(missing_ok=True)
+
+    if not has_video_stream(out_path) or not has_audio_stream(out_path):
+        out_path.unlink(missing_ok=True)
+        raise RuntimeError("produce2 preview failed: cached clip is missing video or audio")
     return out_path
 
 
@@ -148,6 +306,31 @@ def prepare_preview(url: str, start: float, end: float) -> dict:
         "duration": round(end - start, 2),
         "video":    video,
         "thumb":    thumb,
+    }
+
+
+def prepare_preview2(url: str, start: float, end: float) -> dict:
+    """Produce2-only preview: download the selected section with original audio."""
+    url = normalize_media_url(url)
+    cid = clip_id(url, start, end)
+    PREVIEW2_DIR.mkdir(parents=True, exist_ok=True)
+    video = PREVIEW2_DIR / f"{cid}.mp4"
+    thumb = PREVIEW2_DIR / f"{cid}.jpg"
+
+    download_section_with_audio(url, start, end, video)
+    if not thumb.exists() or thumb.stat().st_size == 0:
+        try:
+            extract_thumbnail(video, thumb)
+        except Exception as e:
+            print(f"[preview2] thumbnail skip - {e}", flush=True)
+            thumb = None
+
+    return {
+        "clip_id": cid,
+        "duration": round(end - start, 2),
+        "video": video,
+        "thumb": thumb,
+        "has_audio": has_audio_stream(video),
     }
 
 

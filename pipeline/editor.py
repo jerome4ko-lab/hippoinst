@@ -31,6 +31,7 @@ def create_background_frame(
     pill_text: str = "",
     clipless: bool = False,
     hook_accent_color: str | None = None,
+    bg_template: str = "bg_purple",
 ) -> Path:
     """Render static background as PNG.
 
@@ -46,10 +47,10 @@ def create_background_frame(
     W, H = config.VIDEO_WIDTH, config.VIDEO_HEIGHT
     accent_rgb = _coerce_hex_rgb(hook_accent_color, config.COLORS["accent"])
 
-    bg_laser = config.ASSETS_DIR / "bg_laser6.png"
+    bg_laser = config.BG_TEMPLATE_MAP.get(bg_template, config.BG_TEMPLATE_FALLBACK)
     if not bg_laser.exists():
         raise FileNotFoundError(
-            f"배경 이미지가 없습니다: {bg_laser} — assets 폴더에 직접 png를 넣어주세요."
+            f"배경 이미지가 없습니다: {bg_laser} — assets/bg_template/ 폴더에 png를 넣어주세요."
         )
 
     base = Image.open(bg_laser).convert("RGB")
@@ -109,6 +110,7 @@ def create_template_preview(
     *,
     pill_text: str = "",
     hook_accent_color: str | None = None,
+    bg_template: str = "bg_purple",
 ) -> Path:
     """쇼츠 템플릿 미리보기 PNG. 영상·TTS·ffmpeg 없이 즉시 생성.
 
@@ -117,7 +119,7 @@ def create_template_preview(
     를 흐리게 가상으로 표시한다.
     """
     config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    bg_laser = config.ASSETS_DIR / "bg_laser6.png"
+    bg_laser = config.BG_TEMPLATE_MAP.get(bg_template, config.BG_TEMPLATE_FALLBACK)
     if bg_laser.exists():
         img = Image.open(bg_laser).convert("RGB")
         if img.size != (config.VIDEO_WIDTH, config.VIDEO_HEIGHT):
@@ -637,6 +639,7 @@ def compose_video(
     gifs:        list = None,   # [{"path": Path, "start": float, "duration": float, "size": int}]
     voice_gain:  float = None,  # None → ElevenLabs 디폴트 사용
     bgm_volume:  float = None,
+    clip_volume: float | None = None,  # None이면 클립 오디오 무시(기존 동작)
 ) -> None:
     """Composite background + clip + GIFs + subtitles + audio into final MP4.
 
@@ -763,7 +766,24 @@ def compose_video(
     bv_alone = float(bgm_volume if bgm_volume is not None else config.BGM_VOLUME_NO_VOICE)
     fade_st  = max(duration - 5, 0)
 
-    if tts_path:
+    if clip_volume is not None and has_clip:
+        cv = float(clip_volume)
+        if tts_path:
+            audio_filter = (
+                f"[{clip_idx}:a]volume={cv:.3f}[clipv];"
+                f"[{tts_idx}:a]volume={vg:.3f}[voice];"
+                f"[{bgm_idx}:a]afade=t=out:st={fade_st}:d=5,volume={bv:.3f}[bgm];"
+                f"[clipv][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3:normalize=0[mix];"
+                f"[mix]alimiter=limit=0.89:level=disabled[aout]"
+            )
+        else:
+            audio_filter = (
+                f"[{clip_idx}:a]volume={cv:.3f}[clipv];"
+                f"[{bgm_idx}:a]afade=t=out:st={fade_st}:d=5,volume={bv_alone:.3f}[bgm];"
+                f"[clipv][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[mix];"
+                f"[mix]alimiter=limit=0.89:level=disabled[aout]"
+            )
+    elif tts_path:
         audio_filter = (
             f"[{tts_idx}:a]volume={vg:.3f}[voice];"
             f"[{bgm_idx}:a]afade=t=out:st={fade_st}:d=5,volume={bv:.3f}[bgm];"

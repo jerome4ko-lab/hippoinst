@@ -148,6 +148,34 @@ def _voice_id_or_default(provider: str, voice_id: str | None) -> str:
     return config.ELEVENLABS_VOICE_ID
 
 
+def _voice_id_gain(voice_id: str | None) -> float:
+    raw = getattr(config, "TTS_VOICE_ID_GAIN", {}).get(voice_id or "", 1.0)
+    try:
+        return max(0.01, float(raw))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _apply_voice_id_gain(audio_path: Path, voice_id: str | None) -> None:
+    gain = _voice_id_gain(voice_id)
+    if abs(gain - 1.0) < 0.001:
+        return
+
+    tmp_path = audio_path.with_name(f"{audio_path.stem}.gain{audio_path.suffix}")
+    cmd = [
+        "ffmpeg", "-y",
+        "-hide_banner", "-loglevel", "error",
+        "-i", str(audio_path),
+        "-af", f"volume={gain:.6f},alimiter=limit=0.89:level=disabled",
+        "-c:a", "libmp3lame", "-b:a", "128k",
+        str(tmp_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    if result.returncode != 0:
+        raise RuntimeError(f"TTS voice gain failed:\n{result.stderr[-1000:]}")
+    tmp_path.replace(audio_path)
+
+
 def _normalize_narration(narration) -> list[str]:
     if isinstance(narration, str):
         return [ln for ln in narration.splitlines() if ln.strip()]
@@ -160,6 +188,7 @@ def _cache_key(narration, provider: str, voice_id: str) -> str:
         provider,
         voice_id or "",
         float(config.TTS_SPEED or 1.0),
+        _voice_id_gain(voice_id),
         config.TYPECAST_MODEL if provider == "typecast" else "eleven_multilingual_v2",
         "\n".join(lines),
     ], ensure_ascii=False)
@@ -274,6 +303,7 @@ def _generate_elevenlabs(narration: list[str], voice_id: str | None):
 
     tts_path = config.TEMP_DIR / "tts.mp3"
     tts_path.write_bytes(base64.b64decode(response.audio_base_64))
+    _apply_voice_id_gain(tts_path, vid)
 
     words    = _parse_words(response.alignment)
     duration = _get_duration(tts_path)
@@ -298,6 +328,7 @@ def _elevenlabs_to_mp3(text: str, voice_id: str, out_path: Path) -> None:
         for chunk in audio_iter:
             if chunk:
                 f.write(chunk)
+    _apply_voice_id_gain(out_path, voice_id)
 
 
 def _parse_words(alignment) -> list[dict]:
@@ -397,6 +428,7 @@ def _typecast_to_mp3(text: str, voice_id: str, out_path: Path) -> None:
 
             if res.status_code == 200:
                 out_path.write_bytes(res.content)
+                _apply_voice_id_gain(out_path, voice_id)
                 return
 
             body = res.text or ""
