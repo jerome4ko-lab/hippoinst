@@ -4,6 +4,10 @@ import json
 import threading
 import asyncio
 import re
+import hmac
+import hashlib
+import shutil
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -11,7 +15,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,6 +28,89 @@ app.mount("/output", StaticFiles(directory=str(config.OUTPUT_DIR)), name="output
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 jobs: dict[str, dict] = {}
+
+
+def _auth_enabled() -> bool:
+    return bool((config.APP_PASSWORD or "").strip())
+
+
+def _auth_token() -> str:
+    secret = (config.AUTH_COOKIE_SECRET or config.APP_PASSWORD or "").encode("utf-8")
+    password = (config.APP_PASSWORD or "").encode("utf-8")
+    return hmac.new(secret, password, hashlib.sha256).hexdigest()
+
+
+def _is_authenticated(request: Request) -> bool:
+    if not _auth_enabled():
+        return True
+    token = request.cookies.get("hippoinst_auth") or ""
+    return hmac.compare_digest(token, _auth_token())
+
+
+def _login_page(error: str = "") -> HTMLResponse:
+    message = f'<p class="error">{error}</p>' if error else ""
+    return HTMLResponse(f"""<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>힙포인사이트 로그인</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  body {{ margin:0; min-height:100vh; display:grid; place-items:center;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background:#111; color:#f7f7f7; }}
+  form {{ width:min(360px, calc(100vw - 32px)); display:grid; gap:14px; }}
+  h1 {{ margin:0 0 8px; font-size:24px; }}
+  input, button {{ box-sizing:border-box; width:100%; height:44px; border-radius:8px;
+    border:1px solid #444; font-size:16px; }}
+  input {{ padding:0 12px; background:#191919; color:#fff; }}
+  button {{ border:0; background:#f0c040; color:#171306; font-weight:700; cursor:pointer; }}
+  .error {{ margin:0; color:#ff8d8d; font-size:14px; }}
+</style>
+</head><body>
+<form method="post" action="/login">
+  <h1>힙포인사이트</h1>
+  {message}
+  <input name="password" type="password" autocomplete="current-password" placeholder="APP_PASSWORD" autofocus>
+  <button type="submit">접속</button>
+</form>
+</body></html>""")
+
+
+@app.middleware("http")
+async def _password_gate(request: Request, call_next):
+    path = request.url.path
+    if not _auth_enabled() or path in ("/login", "/favicon.ico") or path.startswith("/static/"):
+        return await call_next(request)
+    if _is_authenticated(request):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return HTMLResponse("Unauthorized", status_code=401)
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_form():
+    if not _auth_enabled():
+        return RedirectResponse("/", status_code=303)
+    return _login_page()
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    form = await request.form()
+    password = str(form.get("password") or "")
+    if not hmac.compare_digest(password.encode("utf-8"), config.APP_PASSWORD.encode("utf-8")):
+        return _login_page("비밀번호가 맞지 않습니다.")
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(
+        "hippoinst_auth",
+        _auth_token(),
+        max_age=60 * 60 * 24 * 30,
+        httponly=True,
+        samesite="lax",
+    )
+    return resp
 
 
 def _mask_key(key: str) -> str:
@@ -435,11 +522,67 @@ def _dispatch_scheduled_upload(rec: dict) -> None:
     ).start()
 
 
+def _remove_old_entries(base_dir: Path, max_age_hours: int, *, pattern: str = "*") -> int:
+    base_dir = Path(base_dir)
+    if not base_dir.exists():
+        return 0
+    cutoff = time.time() - max(1, int(max_age_hours)) * 3600
+    removed = 0
+    for path in base_dir.glob(pattern):
+        if not path.exists():
+            continue
+        try:
+            if path.stat().st_mtime > cutoff:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            removed += 1
+        except Exception as exc:
+            print(f"[cleanup] skip {path}: {exc}", flush=True)
+    return removed
+
+
+def _cleanup_runtime_once() -> None:
+    removed_temp = _remove_old_entries(
+        config.TEMP_DIR,
+        config.TEMP_CLEANUP_MAX_AGE_HOURS,
+    )
+    removed_remotion = _remove_old_entries(
+        config.BASE_DIR / "remotion" / "public",
+        config.REMOTION_JOB_CLEANUP_MAX_AGE_HOURS,
+        pattern="job_*",
+    )
+    if removed_temp or removed_remotion:
+        print(
+            f"[cleanup] temp {removed_temp}개, remotion job {removed_remotion}개 정리",
+            flush=True,
+        )
+
+
+def _start_runtime_cleanup() -> None:
+    if not config.TEMP_CLEANUP_ENABLED:
+        print("[cleanup] TEMP_CLEANUP_ENABLED=0 — 자동 정리 비활성", flush=True)
+        return
+
+    def worker() -> None:
+        while True:
+            try:
+                _cleanup_runtime_once()
+            except Exception as exc:
+                print(f"[cleanup] failed: {exc}", flush=True)
+            time.sleep(max(1, int(config.TEMP_CLEANUP_INTERVAL_HOURS)) * 3600)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 @app.on_event("startup")
 async def _startup_uploads() -> None:
     """재시작 복구 + 스케줄러/통계 폴러 시동."""
     from pipeline import upload_store, upload_scheduler, stats_poller
 
+    _start_runtime_cleanup()
     n = upload_store.mark_uploading_as_failed_on_startup()
     if n:
         print(f"[startup] {n} 건의 끊긴 업로드를 'failed' 로 마킹했어요")

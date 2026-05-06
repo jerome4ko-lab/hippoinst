@@ -1,0 +1,23 @@
+services:
+  hippoinst:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hippoinst
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "8000"
+    command: >
+      python -m uvicorn web.app:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 1
+    ports:
+      - "8420:8000"
+    volumes:
+      - ./.env:/app/.env
+      - ./runtime/output:/app/output
+      - ./runtime/temp:/app/temp
+      - ./runtime/data:/app/data

@@ -10,6 +10,14 @@ ASSETS_DIR  = BASE_DIR / "assets"
 OUTPUT_DIR  = BASE_DIR / "output"
 TEMP_DIR    = BASE_DIR / "temp"
 
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")
+AUTH_COOKIE_SECRET = os.getenv("AUTH_COOKIE_SECRET", APP_PASSWORD or "hippoinst-local-dev")
+
+TEMP_CLEANUP_ENABLED = os.getenv("TEMP_CLEANUP_ENABLED", "1") not in ("0", "false", "False", "no", "off")
+TEMP_CLEANUP_MAX_AGE_HOURS = int(os.getenv("TEMP_CLEANUP_MAX_AGE_HOURS", "72"))
+TEMP_CLEANUP_INTERVAL_HOURS = int(os.getenv("TEMP_CLEANUP_INTERVAL_HOURS", "24"))
+REMOTION_JOB_CLEANUP_MAX_AGE_HOURS = int(os.getenv("REMOTION_JOB_CLEANUP_MAX_AGE_HOURS", "168"))
+
 BGM_DIR = ASSETS_DIR / "bgm"
 BGM_MAP = {
     "bgm_impact": BGM_DIR / "bgm_impact.mp3",
